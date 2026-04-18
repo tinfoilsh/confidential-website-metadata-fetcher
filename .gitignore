@@ -1,0 +1,8 @@
+.idea/
+.claude/
+.env
+.env.local
+metadata-fetch
+ext.yml
+tuf-repo-cdn.sigstore.dev.json
+.gocache/
