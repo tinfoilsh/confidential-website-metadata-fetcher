@@ -5,7 +5,7 @@ memory: 2048
 
 containers:
   - name: "metadata-fetch"
-    image: "ghcr.io/tinfoilsh/confidential-website-metadata-fetcher:0.0.1"
+    image: "ghcr.io/tinfoilsh/confidential-website-metadata-fetcher@sha256:4480500c8f3ed12872844277041b8839bc11308c08a082ba7c7189c3285e7474" # v0.0.1
 
 shim:
   listen-port: 443
