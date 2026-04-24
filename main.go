@@ -13,6 +13,7 @@ import (
 
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/cache"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/config"
+	"github.com/tinfoilsh/confidential-website-metadata-fetcher/favicon"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/fetch"
 )
 
@@ -27,7 +28,12 @@ func main() {
 	cfg := config.Load()
 	fetcher := fetch.NewFetcher(cfg)
 	resultCache := cache.New[fetch.Result](cfg.CacheMaxEntries, cfg.CacheTTL)
-	server := NewServer(fetcher, resultCache)
+	faviconFetcher := favicon.NewFetcher(
+		cfg.FetchTimeout,
+		cfg.CacheMaxEntries,
+		cfg.CacheTTL,
+	)
+	server := NewServer(fetcher, resultCache, faviconFetcher)
 
 	mux := http.NewServeMux()
 	server.Routes(mux)
