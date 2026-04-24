@@ -7,8 +7,8 @@ third-party API key. Built in Go around
 shipped as a Tinfoil enclave image.
 
 The response exposes the resolved `og:title`, `og:description`, `og:site_name`,
-`og:image`, and the page favicon. Each field (other than the final URL) is
-`null` when the source page does not advertise it.
+`og:image`, and the page favicon. Each Open Graph field is `null` when the
+source page does not advertise it.
 
 ## Quick Start
 
@@ -63,8 +63,38 @@ curl http://localhost:8089/metadata \
 }
 ```
 
-Every field other than `url` is `null` when the source page does not expose
-the corresponding tag. `url` reflects the final URL after redirects.
+Every Open Graph field is `null` when the source page does not expose the
+corresponding tag. `url` reflects the final URL after redirects.
+
+### Fetch Favicon
+
+`GET /favicon?host=<hostname>`
+
+Lightweight lookup that proxies
+[DuckDuckGo's favicon service](https://icons.duckduckgo.com/) from inside
+the enclave. The body of the upstream response is streamed back with its
+declared `Content-Type` so the browser can use it directly as an `<img src>`.
+
+```bash
+curl -o favicon.ico http://localhost:8089/favicon?host=example.com
+```
+
+**Request:**
+
+| Query | Type | Required | Description |
+|-------|------|----------|-------------|
+| `host` | string | yes | Hostname to look up. Must match the DNS grammar (letters, digits, hyphens, dots). Paths and schemes are rejected. |
+
+**Response headers:**
+
+| Header | Description |
+|--------|-------------|
+| `Content-Type` | Declared type from upstream (typically `image/x-icon` or `image/png`). |
+| `Cache-Control` | `public, max-age=86400, stale-while-revalidate=604800`. |
+| `X-Cache` | `HIT` when the entry came from the in-memory cache, otherwise `MISS`. |
+
+Responses are capped at 256 KB and rejected if the upstream returns a non-200
+status.
 
 ### Health Check
 
