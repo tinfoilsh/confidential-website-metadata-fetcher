@@ -6,9 +6,9 @@ third-party API key. Built in Go around
 [`github.com/otiai10/opengraph/v2`](https://github.com/otiai10/opengraph) and
 shipped as a Tinfoil enclave image.
 
-The initial response shape exposes only the resolved `og:image`; adding
-`title`, `description`, and other fields is a small change in
-`fetch/fetch.go`.
+The response exposes the resolved `og:title`, `og:description`, `og:site_name`,
+`og:image`, and the page favicon. Each field (other than the final URL) is
+`null` when the source page does not advertise it.
 
 ## Quick Start
 
@@ -54,13 +54,17 @@ curl http://localhost:8089/metadata \
 ```json
 {
   "url": "https://example.com/article",
+  "title": "Example Article",
+  "description": "A short summary of the article.",
+  "site_name": "Example",
   "image": "https://example.com/cover.jpg",
+  "favicon": "https://example.com/favicon.ico",
   "cached": false
 }
 ```
 
-`image` is `null` when no `og:image` is present. `url` reflects the final URL
-after redirects.
+Every field other than `url` is `null` when the source page does not expose
+the corresponding tag. `url` reflects the final URL after redirects.
 
 ### Health Check
 
@@ -85,14 +89,6 @@ after redirects.
 docker build -t metadata-fetch .
 docker run -p 8089:8089 metadata-fetch
 ```
-
-## Extending
-
-`fetch.Fetch` returns the raw `*opengraph.OpenGraph` fields via
-`otiai10/opengraph/v2`, which already parses `og:title`, `og:description`,
-`og:site_name`, and the rest of the spec. To surface them in the response,
-populate extra fields on `metadataResponse` in `handlers.go` from the
-`ogp.Title`, `ogp.Description`, etc. returned by `opengraph.Fetch`.
 
 ## Reporting Vulnerabilities
 
