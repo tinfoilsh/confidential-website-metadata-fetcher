@@ -25,7 +25,7 @@ func Load() *Config {
 		MaxBodyBytes:    getEnvInt64("MAX_BODY_BYTES", 5*1024*1024),
 		MaxConcurrent:   getEnvInt("MAX_CONCURRENT", 32),
 		UserAgent:       getEnv("USER_AGENT", "Mozilla/5.0 (compatible; MetadataFetchBot/1.0; +https://github.com)"),
-		CacheMaxEntries: getEnvInt("CACHE_MAX_ENTRIES", 5000),
+		CacheMaxEntries: getEnvInt("CACHE_MAX_ENTRIES", 2000),
 		CacheTTL:        getEnvDuration("CACHE_TTL", 24*time.Hour),
 	}
 }

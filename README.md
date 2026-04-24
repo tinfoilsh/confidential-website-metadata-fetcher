@@ -28,7 +28,7 @@ The service listens on `:8089` by default.
 | `MAX_BODY_BYTES` | `5242880` | Reject pages larger than this |
 | `MAX_CONCURRENT` | `32` | Concurrent in-flight scrape limit |
 | `USER_AGENT` | `Mozilla/5.0 (compatible; MetadataFetchBot/1.0; ...)` | UA sent to targets |
-| `CACHE_MAX_ENTRIES` | `5000` | LRU cache capacity |
+| `CACHE_MAX_ENTRIES` | `2000` | LRU cache capacity |
 | `CACHE_TTL` | `24h` | Cache entry TTL |
 
 ## API
