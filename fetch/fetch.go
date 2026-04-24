@@ -12,11 +12,16 @@ import (
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/config"
 )
 
-// Result is the extracted metadata returned to callers. image is the
-// resolved absolute URL of the page's og:image (or nil when missing).
+// Result is the extracted metadata returned to callers. All fields except
+// URL are pointers so the JSON response can distinguish "missing" (null)
+// from "empty string".
 type Result struct {
-	URL   string  `json:"url"`
-	Image *string `json:"image"`
+	URL         string  `json:"url"`
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	SiteName    *string `json:"site_name"`
+	Image       *string `json:"image"`
+	Favicon     *string `json:"favicon"`
 }
 
 // Fetcher extracts Open Graph metadata from a URL using an SSRF-hardened
@@ -70,9 +75,21 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
 	if result.URL == "" {
 		result.URL = rawURL
 	}
+	if title := strings.TrimSpace(ogp.Title); title != "" {
+		result.Title = &title
+	}
+	if desc := strings.TrimSpace(ogp.Description); desc != "" {
+		result.Description = &desc
+	}
+	if site := strings.TrimSpace(ogp.SiteName); site != "" {
+		result.SiteName = &site
+	}
 	if len(ogp.Image) > 0 && strings.TrimSpace(ogp.Image[0].URL) != "" {
 		img := strings.TrimSpace(ogp.Image[0].URL)
 		result.Image = &img
+	}
+	if favicon := strings.TrimSpace(ogp.Favicon.URL); favicon != "" {
+		result.Favicon = &favicon
 	}
 	return result, nil
 }

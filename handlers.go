@@ -16,9 +16,13 @@ type metadataRequest struct {
 }
 
 type metadataResponse struct {
-	URL    string  `json:"url"`
-	Image  *string `json:"image"`
-	Cached bool    `json:"cached"`
+	URL         string  `json:"url"`
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	SiteName    *string `json:"site_name"`
+	Image       *string `json:"image"`
+	Favicon     *string `json:"favicon"`
+	Cached      bool    `json:"cached"`
 }
 
 type errorResponse struct {
@@ -63,9 +67,13 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	cacheKey := cache.NormalizeURL(req.URL)
 	if cached, ok := s.cache.Get(cacheKey); ok {
 		writeJSON(w, http.StatusOK, metadataResponse{
-			URL:    cached.URL,
-			Image:  cached.Image,
-			Cached: true,
+			URL:         cached.URL,
+			Title:       cached.Title,
+			Description: cached.Description,
+			SiteName:    cached.SiteName,
+			Image:       cached.Image,
+			Favicon:     cached.Favicon,
+			Cached:      true,
 		})
 		return
 	}
@@ -83,9 +91,13 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 
 	s.cache.Set(cacheKey, *result)
 	writeJSON(w, http.StatusOK, metadataResponse{
-		URL:    result.URL,
-		Image:  result.Image,
-		Cached: false,
+		URL:         result.URL,
+		Title:       result.Title,
+		Description: result.Description,
+		SiteName:    result.SiteName,
+		Image:       result.Image,
+		Favicon:     result.Favicon,
+		Cached:      false,
 	})
 }
 
