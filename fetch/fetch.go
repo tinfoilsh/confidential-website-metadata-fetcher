@@ -14,14 +14,15 @@ import (
 
 // Result is the extracted metadata returned to callers. All fields except
 // URL are pointers so the JSON response can distinguish "missing" (null)
-// from "empty string".
+// from "empty string". The favicon is intentionally absent here — callers
+// always receive favicon bytes inlined in the HTTP response so no client
+// ever has to GET a third-party favicon URL.
 type Result struct {
 	URL         string  `json:"url"`
 	Title       *string `json:"title"`
 	Description *string `json:"description"`
 	SiteName    *string `json:"site_name"`
 	Image       *string `json:"image"`
-	Favicon     *string `json:"favicon"`
 }
 
 // Fetcher extracts Open Graph metadata from a URL using an SSRF-hardened
@@ -87,9 +88,6 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
 	if len(ogp.Image) > 0 && strings.TrimSpace(ogp.Image[0].URL) != "" {
 		img := strings.TrimSpace(ogp.Image[0].URL)
 		result.Image = &img
-	}
-	if favicon := strings.TrimSpace(ogp.Favicon.URL); favicon != "" {
-		result.Favicon = &favicon
 	}
 	return result, nil
 }

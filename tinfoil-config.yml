@@ -12,5 +12,4 @@ shim:
   upstream-port: 8089
   paths:
     - /metadata
-    - /favicon
     - /health
