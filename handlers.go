@@ -100,6 +100,20 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.WithFields(log.Fields{"err": err.Error()}).Warn("metadata fetch failed")
+		// Favicon only needs the hostname, so a paywalled, timed-out,
+		// or bot-blocked page should still surface its icon. Try the
+		// favicon lookup directly and return a partial response when
+		// it succeeds; only fall through to 502 if both lookups fail.
+		bytes, contentType := s.fetchFavicon(r, req.URL)
+		if len(bytes) > 0 {
+			writeJSON(w, http.StatusOK, metadataResponse{
+				URL:                req.URL,
+				FaviconBytes:       bytes,
+				FaviconContentType: contentType,
+				Cached:             false,
+			})
+			return
+		}
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "failed to fetch metadata"})
 		return
 	}
