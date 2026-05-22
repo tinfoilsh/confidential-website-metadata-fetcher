@@ -17,6 +17,10 @@ type metadataRequest struct {
 	URL string `json:"url"`
 }
 
+type faviconRequest struct {
+	Host string `json:"host"`
+}
+
 type metadataResponse struct {
 	URL         string  `json:"url"`
 	Title       *string `json:"title"`
@@ -111,16 +115,25 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 
 // handleFavicon proxies a favicon lookup to the upstream icon service.
 // The caller supplies only a hostname so there is no way to coerce the
-// enclave into reaching arbitrary endpoints through this path.
+// enclave into reaching arbitrary endpoints through this path. The
+// hostname travels in the JSON body so it is sealed by EHBP and never
+// appears in proxy logs or TLS SNI-adjacent metadata.
 func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
 		return
 	}
 
-	host := r.URL.Query().Get("host")
+	var req faviconRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body"})
+		return
+	}
+	host := req.Host
 	if host == "" {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "host query parameter is required"})
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "host is required"})
 		return
 	}
 

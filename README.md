@@ -68,20 +68,24 @@ corresponding tag. `url` reflects the final URL after redirects.
 
 ### Fetch Favicon
 
-`GET /favicon?host=<hostname>`
+`POST /favicon`
 
 Lightweight lookup that proxies
 [DuckDuckGo's favicon service](https://icons.duckduckgo.com/) from inside
 the enclave. The body of the upstream response is streamed back with its
-declared `Content-Type` so the browser can use it directly as an `<img src>`.
+declared `Content-Type`; clients render it via a data URL or object URL.
+The hostname is carried in the JSON body (not a query parameter) so it is
+sealed by EHBP and never appears in proxy logs.
 
 ```bash
-curl -o favicon.ico http://localhost:8089/favicon?host=example.com
+curl -o favicon.ico http://localhost:8089/favicon \
+  -H "Content-Type: application/json" \
+  -d '{"host": "example.com"}'
 ```
 
 **Request:**
 
-| Query | Type | Required | Description |
+| Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `host` | string | yes | Hostname to look up. Must match the DNS grammar (letters, digits, hyphens, dots). Paths and schemes are rejected. |
 
