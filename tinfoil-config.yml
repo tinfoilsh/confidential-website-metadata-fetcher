@@ -4,7 +4,7 @@ memory: 2048
 
 containers:
   - name: "metadata-fetch"
-    image: "ghcr.io/tinfoilsh/confidential-website-metadata-fetcher@sha256:0000000000000000000000000000000000000000000000000000000000000000" # placeholder - populated during release
+    image: "ghcr.io/tinfoilsh/confidential-website-metadata-fetcher@sha256:9382dac79852a7e43cd6c5ebf34e13326cd92f061ef32850fed34e2e8bb2bacc" # v0.0.5
     restart: always
     networks: [web]
 
