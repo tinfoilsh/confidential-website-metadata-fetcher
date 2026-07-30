@@ -49,8 +49,8 @@ func TestFetchReturnsDecodedUpstreamResponse(t *testing.T) {
 	if string(response.Body) != "response-body" {
 		t.Fatalf("response body = %q", response.Body)
 	}
-	if response.Header.Get("Content-Type") != "text/html" {
-		t.Fatalf("content type = %q", response.Header.Get("Content-Type"))
+	if response.ContentType != "text/html" {
+		t.Fatalf("content type = %q", response.ContentType)
 	}
 }
 

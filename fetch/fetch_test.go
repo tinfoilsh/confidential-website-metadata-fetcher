@@ -2,10 +2,8 @@ package fetch
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/config"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
 )
 
@@ -28,16 +26,16 @@ func TestFetchRetrievesPageAndReturnsImageURL(t *testing.T) {
 			t.Fatalf("unexpected upstream URL %q", targetURL)
 		}
 		return &zyte.Response{
-			URL:        finalURL,
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": {"text/html; charset=utf-8"}},
+			URL:         finalURL,
+			ContentType: "text/html; charset=utf-8",
 			Body: []byte(`<html><head>
 					<meta property="og:title" content="Example Article">
+					<meta property="og:url" content="https://wrong.example/page">
 					<meta property="og:image" content="/images/cover.jpg">
 				</head></html>`),
 		}, nil
 	})
-	fetcher := NewFetcher(&config.Config{MaxBodyBytes: 1024}, upstream)
+	fetcher := NewFetcher(upstream, 1024)
 
 	result, err := fetcher.Fetch(context.Background(), pageURL)
 	if err != nil {

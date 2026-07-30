@@ -3,14 +3,13 @@ package fetch
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
+	"mime"
+	"net/url"
 	"strings"
 
 	"github.com/otiai10/opengraph/v2"
 
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/config"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
 )
 
@@ -29,54 +28,45 @@ type Result struct {
 
 // Fetcher extracts Open Graph metadata from resources retrieved through Zyte.
 type Fetcher struct {
-	cfg      *config.Config
-	upstream upstreamFetcher
-}
-
-type upstreamFetcher interface {
-	Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*zyte.Response, error)
+	maxBodyBytes int64
+	upstream     zyte.Fetcher
 }
 
 // NewFetcher returns a Fetcher that retrieves upstream resources through Zyte.
-func NewFetcher(cfg *config.Config, upstream upstreamFetcher) *Fetcher {
-	return &Fetcher{cfg: cfg, upstream: upstream}
+func NewFetcher(upstream zyte.Fetcher, maxBodyBytes int64) *Fetcher {
+	return &Fetcher{maxBodyBytes: maxBodyBytes, upstream: upstream}
 }
 
 // Fetch resolves the page and returns its metadata. Any error is suitable to
 // report to callers; detailed error information is left to the caller's log.
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
-	if err := ValidateTargetURL(rawURL); err != nil {
-		return nil, &ClientError{msg: err.Error()}
-	}
-
-	page, err := f.upstream.Fetch(ctx, rawURL, f.cfg.MaxBodyBytes)
+	page, err := f.upstream.Fetch(ctx, rawURL, f.maxBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("fetch metadata: %w", err)
 	}
-	if page.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetch metadata: status %d", page.StatusCode)
-	}
-	if !strings.HasPrefix(page.Header.Get("Content-Type"), "text/html") {
+	contentType, _, err := mime.ParseMediaType(page.ContentType)
+	if err != nil || !strings.EqualFold(contentType, "text/html") {
 		return nil, fmt.Errorf("fetch metadata: content type must be text/html")
 	}
 
-	ogp := opengraph.New(page.URL)
+	pageURL := page.URL
+	if pageURL == "" {
+		pageURL = rawURL
+	}
+	pageURL, err = NormalizeTargetURL(pageURL)
+	if err != nil {
+		return nil, fmt.Errorf("normalize final URL: %w", err)
+	}
+	baseURL, err := url.Parse(pageURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse final URL: %w", err)
+	}
+	ogp := opengraph.New(pageURL)
 	if err := ogp.Parse(bytes.NewReader(page.Body)); err != nil {
 		return nil, fmt.Errorf("parse metadata: %w", err)
 	}
 
-	// Resolve relative og:image URLs against the final page URL before fetching.
-	if err := ogp.ToAbs(); err != nil {
-		return nil, fmt.Errorf("resolve metadata URLs: %w", err)
-	}
-
-	result := &Result{URL: ogp.URL}
-	if result.URL == "" {
-		result.URL = page.URL
-	}
-	if result.URL == "" {
-		result.URL = rawURL
-	}
+	result := &Result{URL: pageURL}
 	if title := strings.TrimSpace(ogp.Title); title != "" {
 		result.Title = &title
 	}
@@ -87,20 +77,13 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
 		result.SiteName = &site
 	}
 	if len(ogp.Image) > 0 && strings.TrimSpace(ogp.Image[0].URL) != "" {
-		image := strings.TrimSpace(ogp.Image[0].URL)
-		result.Image = &image
+		imageRef, err := url.Parse(strings.TrimSpace(ogp.Image[0].URL))
+		if err == nil {
+			image, err := NormalizeTargetURL(baseURL.ResolveReference(imageRef).String())
+			if err == nil {
+				result.Image = &image
+			}
+		}
 	}
 	return result, nil
-}
-
-// ClientError signals that the request was rejected because of caller input
-// (invalid URL, blocked host, etc.), not an upstream failure.
-type ClientError struct{ msg string }
-
-func (e *ClientError) Error() string { return e.msg }
-
-// IsClientError reports whether err originated from caller input.
-func IsClientError(err error) bool {
-	var ce *ClientError
-	return errors.As(err, &ce)
 }

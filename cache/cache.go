@@ -2,55 +2,9 @@ package cache
 
 import (
 	"container/list"
-	"strings"
 	"sync"
 	"time"
-
-	"net/url"
 )
-
-// trackingParamPrefixes and trackingParamExact define query parameters that
-// are stripped during cache-key normalization so the same logical URL hits
-// the same entry regardless of referrer tracking noise.
-var trackingParamPrefixes = []string{"utm_"}
-
-var trackingParamExact = map[string]struct{}{
-	"gclid":   {},
-	"fbclid":  {},
-	"mc_cid":  {},
-	"mc_eid":  {},
-	"ref":     {},
-	"ref_src": {},
-	"ref_url": {},
-}
-
-// NormalizeURL returns a canonical string for cache lookups. It drops the
-// fragment, lowercases the host, and removes common tracking parameters.
-// Callers may pass either the raw URL or a pre-parsed *url.URL.
-func NormalizeURL(raw string) string {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	parsed.Host = strings.ToLower(parsed.Host)
-	parsed.Fragment = ""
-	q := parsed.Query()
-	for key := range q {
-		lower := strings.ToLower(key)
-		if _, ok := trackingParamExact[lower]; ok {
-			q.Del(key)
-			continue
-		}
-		for _, prefix := range trackingParamPrefixes {
-			if strings.HasPrefix(lower, prefix) {
-				q.Del(key)
-				break
-			}
-		}
-	}
-	parsed.RawQuery = q.Encode()
-	return parsed.String()
-}
 
 type entry[V any] struct {
 	key       string

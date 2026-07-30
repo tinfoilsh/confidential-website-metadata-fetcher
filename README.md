@@ -10,8 +10,8 @@ shipped as a Tinfoil enclave image.
 The response exposes the resolved `og:title`, `og:description`, `og:site_name`,
 `og:image`, and the page's favicon. Favicons are returned as inlined bytes so
 the client never has to make a follow-up GET to an external icon host. Each Open
-Graph field is `null` when the source page does not advertise it; the favicon
-falls back to DuckDuckGo's icon service when the page does not declare one.
+Graph field is `null` when the source page does not advertise it. Favicons come
+from DuckDuckGo's icon service.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ The service listens on `:8089` by default.
 | `ZYTE_API_KEY` | required | Zyte API credential used for all upstream requests |
 | `LISTEN_ADDR` | `:8089` | Address to listen on |
 | `FETCH_TIMEOUT` | `15s` | Per-request timeout for Zyte API calls |
-| `MAX_BODY_BYTES` | `5242880` | Maximum decoded page or image size |
+| `MAX_BODY_BYTES` | `5242880` | Maximum decoded page size |
 | `CACHE_MAX_ENTRIES` | `2000` | LRU cache capacity |
 | `CACHE_TTL` | `24h` | Cache entry TTL |
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -23,10 +24,13 @@ type Client struct {
 }
 
 type Response struct {
-	URL        string
-	StatusCode int
-	Header     http.Header
-	Body       []byte
+	URL         string
+	ContentType string
+	Body        []byte
+}
+
+type Fetcher interface {
+	Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*Response, error)
 }
 
 type extractRequest struct {
@@ -98,15 +102,20 @@ func (c *Client) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64
 	if int64(len(extracted.HTTPResponseBody)) > maxBodyBytes {
 		return nil, fmt.Errorf("upstream response body too large")
 	}
+	if extracted.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upstream request failed with status %d", extracted.StatusCode)
+	}
 
-	headers := make(http.Header, len(extracted.HTTPResponseHeaders))
+	contentType := ""
 	for _, header := range extracted.HTTPResponseHeaders {
-		headers.Add(header.Name, header.Value)
+		if strings.EqualFold(header.Name, "Content-Type") {
+			contentType = header.Value
+			break
+		}
 	}
 	return &Response{
-		URL:        extracted.URL,
-		StatusCode: extracted.StatusCode,
-		Header:     headers,
-		Body:       extracted.HTTPResponseBody,
+		URL:         extracted.URL,
+		ContentType: contentType,
+		Body:        extracted.HTTPResponseBody,
 	}, nil
 }

@@ -2,43 +2,33 @@ package main
 
 import (
 	"context"
-	"flag"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/cache"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/config"
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/favicon"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/fetch"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
 )
 
-var verbose = flag.Bool("v", false, "enable verbose logging")
+const writeTimeoutGrace = 5 * time.Second
 
 func main() {
-	flag.Parse()
-	if *verbose {
-		log.SetLevel(log.DebugLevel)
-	}
-
 	cfg := config.Load()
 	if cfg.ZyteAPIKey == "" {
 		log.Fatal("ZYTE_API_KEY is required")
 	}
 	zyteClient := zyte.NewClient(cfg.ZyteAPIKey, cfg.FetchTimeout)
-	fetcher := fetch.NewFetcher(cfg, zyteClient)
-	resultCache := cache.New[fetch.Result](cfg.CacheMaxEntries, cfg.CacheTTL)
-	faviconFetcher := favicon.NewFetcher(
+	fetcher := fetch.NewFetcher(zyteClient, cfg.MaxBodyBytes)
+	server := NewServer(
+		fetcher,
 		zyteClient,
 		cfg.CacheMaxEntries,
 		cfg.CacheTTL,
 	)
-	server := NewServer(fetcher, resultCache, faviconFetcher)
 
 	mux := http.NewServeMux()
 	server.Routes(mux)
@@ -47,7 +37,7 @@ func main() {
 		Addr:         cfg.ListenAddr,
 		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 2*cfg.FetchTimeout + writeTimeoutGrace,
 		IdleTimeout:  90 * time.Second,
 	}
 
@@ -55,17 +45,17 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Infof("metadata-fetch listening on %s", cfg.ListenAddr)
+		log.Printf("metadata-fetch listening on %s", cfg.ListenAddr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
 	}()
 
 	<-sigChan
-	log.Info("shutting down")
+	log.Print("shutting down")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
-		log.WithError(err).Warn("graceful shutdown failed")
+		log.Printf("graceful shutdown failed: %v", err)
 	}
 }

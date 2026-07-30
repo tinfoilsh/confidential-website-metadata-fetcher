@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValidateTargetURL_RejectsUnsafeTargets(t *testing.T) {
+func TestNormalizeTargetURLRejectsUnsafeTargets(t *testing.T) {
 	cases := []string{
 		"",
 		"not a url",
@@ -24,21 +24,25 @@ func TestValidateTargetURL_RejectsUnsafeTargets(t *testing.T) {
 	}
 	for _, rawURL := range cases {
 		t.Run(rawURL, func(t *testing.T) {
-			if err := ValidateTargetURL(rawURL); err == nil {
+			if _, err := NormalizeTargetURL(rawURL); err == nil {
 				t.Fatalf("expected rejection for %q", rawURL)
 			}
 		})
 	}
 }
 
-func TestValidateTargetURL_AllowsPublicHTTPS(t *testing.T) {
-	if err := ValidateTargetURL("https://example.com/article"); err != nil {
+func TestNormalizeTargetURLCanonicalizesPublicHTTPS(t *testing.T) {
+	normalized, err := NormalizeTargetURL("  https://EXAMPLE.com/article?ref=one#section  ")
+	if err != nil {
 		t.Fatalf("unexpected rejection: %v", err)
+	}
+	if normalized != "https://example.com/article?ref=one" {
+		t.Fatalf("normalized URL = %q", normalized)
 	}
 }
 
-func TestValidateTargetURL_RejectedMessagesAreActionable(t *testing.T) {
-	err := ValidateTargetURL("http://127.0.0.1")
+func TestNormalizeTargetURLRejectedMessagesAreActionable(t *testing.T) {
+	_, err := NormalizeTargetURL("http://127.0.0.1")
 	if err == nil {
 		t.Fatal("expected error")
 	}
