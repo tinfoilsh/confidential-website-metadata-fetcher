@@ -71,6 +71,13 @@ func TestFetchRejectsOversizedUpstreamBody(t *testing.T) {
 	}
 }
 
+func TestFetchRejectsBodyLimitThatWouldOverflow(t *testing.T) {
+	client := NewClient("test-api-key", time.Second)
+	if _, err := client.Fetch(context.Background(), "https://example.com", maxSupportedBodyBytes+1); err == nil {
+		t.Fatal("expected invalid body limit error")
+	}
+}
+
 func writeJSON(t *testing.T, w http.ResponseWriter, value any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")

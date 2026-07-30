@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ const (
 	apiEndpoint               = "https://api.zyte.com/v1/extract"
 	apiResponseSizeMultiplier = 2
 	maxAPIResponseOverhead    = 64 * 1024
+	maxSupportedBodyBytes     = (math.MaxInt64 - maxAPIResponseOverhead - 1) / apiResponseSizeMultiplier
 )
 
 type Client struct {
@@ -60,6 +62,10 @@ func NewClient(apiKey string, timeout time.Duration) *Client {
 }
 
 func (c *Client) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*Response, error) {
+	if maxBodyBytes <= 0 || maxBodyBytes > maxSupportedBodyBytes {
+		return nil, fmt.Errorf("invalid maximum body size")
+	}
+
 	payload, err := json.Marshal(extractRequest{
 		URL:                 targetURL,
 		HTTPResponseBody:    true,
