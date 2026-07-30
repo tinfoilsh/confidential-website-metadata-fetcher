@@ -1,12 +1,11 @@
 package fetch
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
 
-func TestValidateTargetURL_RejectsUnsafeTargets(t *testing.T) {
+func TestNormalizeTargetURLRejectsUnsafeTargets(t *testing.T) {
 	cases := []string{
 		"",
 		"not a url",
@@ -25,23 +24,25 @@ func TestValidateTargetURL_RejectsUnsafeTargets(t *testing.T) {
 	}
 	for _, rawURL := range cases {
 		t.Run(rawURL, func(t *testing.T) {
-			if err := ValidateTargetURL(context.Background(), rawURL); err == nil {
+			if _, err := NormalizeTargetURL(rawURL); err == nil {
 				t.Fatalf("expected rejection for %q", rawURL)
 			}
 		})
 	}
 }
 
-func TestValidateTargetURL_AllowsPublicHTTPS(t *testing.T) {
-	// 93.184.216.34 was example.com's public IP; using a literal avoids
-	// needing DNS in the test environment.
-	if err := ValidateTargetURL(context.Background(), "https://93.184.216.34"); err != nil {
+func TestNormalizeTargetURLCanonicalizesPublicHTTPS(t *testing.T) {
+	normalized, err := NormalizeTargetURL("  https://EXAMPLE.com/article?ref=one#section  ")
+	if err != nil {
 		t.Fatalf("unexpected rejection: %v", err)
+	}
+	if normalized != "https://example.com/article?ref=one" {
+		t.Fatalf("normalized URL = %q", normalized)
 	}
 }
 
-func TestValidateTargetURL_RejectedMessagesAreActionable(t *testing.T) {
-	err := ValidateTargetURL(context.Background(), "http://127.0.0.1")
+func TestNormalizeTargetURLRejectedMessagesAreActionable(t *testing.T) {
+	_, err := NormalizeTargetURL("http://127.0.0.1")
 	if err == nil {
 		t.Fatal("expected error")
 	}

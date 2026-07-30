@@ -9,10 +9,8 @@ import (
 type Config struct {
 	ListenAddr      string
 	FetchTimeout    time.Duration
-	MaxRedirects    int
 	MaxBodyBytes    int64
-	MaxConcurrent   int
-	UserAgent       string
+	ZyteAPIKey      string
 	CacheMaxEntries int
 	CacheTTL        time.Duration
 }
@@ -20,11 +18,9 @@ type Config struct {
 func Load() *Config {
 	return &Config{
 		ListenAddr:      getEnv("LISTEN_ADDR", ":8089"),
-		FetchTimeout:    getEnvDuration("FETCH_TIMEOUT", 5*time.Second),
-		MaxRedirects:    getEnvInt("MAX_REDIRECTS", 5),
+		FetchTimeout:    getEnvDuration("FETCH_TIMEOUT", 15*time.Second),
 		MaxBodyBytes:    getEnvInt64("MAX_BODY_BYTES", 5*1024*1024),
-		MaxConcurrent:   getEnvInt("MAX_CONCURRENT", 32),
-		UserAgent:       getEnv("USER_AGENT", "Mozilla/5.0 (compatible; MetadataFetchBot/1.0; +https://github.com)"),
+		ZyteAPIKey:      os.Getenv("ZYTE_API_KEY"),
 		CacheMaxEntries: getEnvInt("CACHE_MAX_ENTRIES", 2000),
 		CacheTTL:        getEnvDuration("CACHE_TTL", 24*time.Hour),
 	}

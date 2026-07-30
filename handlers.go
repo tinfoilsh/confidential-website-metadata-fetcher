@@ -1,16 +1,24 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"net/url"
-
-	log "github.com/sirupsen/logrus"
+	"time"
 
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/cache"
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/favicon"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/fetch"
+	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
+)
+
+const (
+	maxRequestBodyBytes int64 = 64 * 1024
+	maxFaviconBodyBytes int64 = 256 * 1024
+	faviconURLTemplate        = "https://icons.duckduckgo.com/ip3/%s.ico"
 )
 
 type metadataRequest struct {
@@ -23,14 +31,10 @@ type metadataRequest struct {
 // upstream icon service declared (typically image/x-icon or image/png) so
 // the client can build a data URL or Blob without sniffing.
 type metadataResponse struct {
-	URL                string  `json:"url"`
-	Title              *string `json:"title"`
-	Description        *string `json:"description"`
-	SiteName           *string `json:"site_name"`
-	Image              *string `json:"image"`
-	FaviconBytes       []byte  `json:"favicon_bytes,omitempty"`
-	FaviconContentType *string `json:"favicon_content_type,omitempty"`
-	Cached             bool    `json:"cached"`
+	fetch.Result
+	FaviconBytes       []byte `json:"favicon_bytes,omitempty"`
+	FaviconContentType string `json:"favicon_content_type,omitempty"`
+	Cached             bool   `json:"cached"`
 }
 
 type errorResponse struct {
@@ -40,17 +44,29 @@ type errorResponse struct {
 // Server wires the fetcher, cache, and HTTP handlers together so main.go can
 // stand the service up with one call.
 type Server struct {
-	fetcher        *fetch.Fetcher
-	cache          *cache.LRU[fetch.Result]
-	faviconFetcher *favicon.Fetcher
+	fetcher      *fetch.Fetcher
+	cache        *cache.LRU[fetch.Result]
+	upstream     zyte.Fetcher
+	faviconCache *cache.LRU[faviconEntry]
 }
 
 func NewServer(
 	fetcher *fetch.Fetcher,
-	cache *cache.LRU[fetch.Result],
-	faviconFetcher *favicon.Fetcher,
+	upstream zyte.Fetcher,
+	cacheMaxEntries int,
+	cacheTTL time.Duration,
 ) *Server {
-	return &Server{fetcher: fetcher, cache: cache, faviconFetcher: faviconFetcher}
+	return &Server{
+		fetcher:      fetcher,
+		cache:        cache.New[fetch.Result](cacheMaxEntries, cacheTTL),
+		upstream:     upstream,
+		faviconCache: cache.New[faviconEntry](cacheMaxEntries, cacheTTL),
+	}
+}
+
+type faviconEntry struct {
+	Body        []byte
+	ContentType string
 }
 
 // Routes registers the service endpoints on the given mux.
@@ -59,7 +75,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", s.handleHealth)
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -70,46 +86,44 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req metadataRequest
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024))
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBodyBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body"})
 		return
 	}
 
-	cacheKey := cache.NormalizeURL(req.URL)
-	if cached, ok := s.cache.Get(cacheKey); ok {
-		bytes, contentType := s.fetchFavicon(r, cached.URL)
+	targetURL, err := fetch.NormalizeTargetURL(req.URL)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+	ctx := r.Context()
+
+	if cached, ok := s.cache.Get(targetURL); ok {
+		favicon := s.fetchFavicon(ctx, cached.URL)
 		writeJSON(w, http.StatusOK, metadataResponse{
-			URL:                cached.URL,
-			Title:              cached.Title,
-			Description:        cached.Description,
-			SiteName:           cached.SiteName,
-			Image:              cached.Image,
-			FaviconBytes:       bytes,
-			FaviconContentType: contentType,
+			Result:             cached,
+			FaviconBytes:       favicon.Body,
+			FaviconContentType: favicon.ContentType,
 			Cached:             true,
 		})
 		return
 	}
 
-	result, err := s.fetcher.Fetch(r.Context(), req.URL)
+	result, err := s.fetcher.Fetch(ctx, targetURL)
 	if err != nil {
-		if fetch.IsClientError(err) {
-			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
-			return
-		}
-		log.WithFields(log.Fields{"err": err.Error()}).Warn("metadata fetch failed")
+		log.Print("metadata fetch failed")
 		// Favicon only needs the hostname, so a paywalled, timed-out,
 		// or bot-blocked page should still surface its icon. Try the
 		// favicon lookup directly and return a partial response when
 		// it succeeds; only fall through to 502 if both lookups fail.
-		bytes, contentType := s.fetchFavicon(r, req.URL)
-		if len(bytes) > 0 {
+		favicon := s.fetchFavicon(ctx, targetURL)
+		if len(favicon.Body) > 0 {
 			writeJSON(w, http.StatusOK, metadataResponse{
-				URL:                req.URL,
-				FaviconBytes:       bytes,
-				FaviconContentType: contentType,
+				Result:             fetch.Result{URL: targetURL},
+				FaviconBytes:       favicon.Body,
+				FaviconContentType: favicon.ContentType,
 				Cached:             false,
 			})
 			return
@@ -118,49 +132,52 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.cache.Set(cacheKey, *result)
-	bytes, contentType := s.fetchFavicon(r, result.URL)
+	s.cache.Set(targetURL, *result)
+	favicon := s.fetchFavicon(ctx, result.URL)
 	writeJSON(w, http.StatusOK, metadataResponse{
-		URL:                result.URL,
-		Title:              result.Title,
-		Description:        result.Description,
-		SiteName:           result.SiteName,
-		Image:              result.Image,
-		FaviconBytes:       bytes,
-		FaviconContentType: contentType,
+		Result:             *result,
+		FaviconBytes:       favicon.Body,
+		FaviconContentType: favicon.ContentType,
 		Cached:             false,
 	})
 }
 
-// fetchFavicon proxies the favicon for the resolved page URL through the
-// enclave so clients never reach an external icon host directly. A
-// failure is non-fatal and yields empty bytes; the client falls back to a
-// placeholder icon.
-func (s *Server) fetchFavicon(r *http.Request, pageURL string) ([]byte, *string) {
+// fetchFavicon proxies the favicon through Zyte so clients never reach an
+// external icon host directly. A failure is non-fatal and yields empty bytes.
+func (s *Server) fetchFavicon(ctx context.Context, pageURL string) faviconEntry {
 	parsed, err := url.Parse(pageURL)
 	if err != nil {
-		return nil, nil
+		return faviconEntry{}
 	}
 	host := parsed.Hostname()
 	if host == "" {
-		return nil, nil
+		return faviconEntry{}
 	}
 
-	entry, _, err := s.faviconFetcher.Fetch(r.Context(), host)
-	if err != nil {
-		if !errors.Is(err, favicon.ErrInvalidHost) {
-			log.WithFields(log.Fields{"err": err.Error(), "host": host}).Debug("favicon fetch failed")
-		}
-		return nil, nil
+	if entry, ok := s.faviconCache.Get(host); ok {
+		return entry
 	}
-	contentType := entry.ContentType
-	return entry.Body, &contentType
+	resp, err := s.upstream.Fetch(
+		ctx,
+		fmt.Sprintf(faviconURLTemplate, url.PathEscape(host)),
+		maxFaviconBodyBytes,
+	)
+	if err != nil {
+		return faviconEntry{}
+	}
+	contentType := resp.ContentType
+	if contentType == "" {
+		contentType = "image/x-icon"
+	}
+	entry := faviconEntry{Body: resp.Body, ContentType: contentType}
+	s.faviconCache.Set(host, entry)
+	return entry
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(body); err != nil && !errors.Is(err, http.ErrBodyNotAllowed) {
-		log.WithError(err).Debug("failed to encode response body")
+		log.Printf("failed to encode response body: %v", err)
 	}
 }
