@@ -6,11 +6,15 @@ containers:
   - name: "metadata-fetch"
     image: "ghcr.io/tinfoilsh/confidential-website-metadata-fetcher@sha256:0000000000000000000000000000000000000000000000000000000000000000" # placeholder - populated during release
     restart: always
-    networks: [web]
+    networks: [zyte]
+    secrets:
+      - ZYTE_API_KEY
 
 networks:
-  web:
-    egress: open
+  zyte:
+    egress: allowlist
+    allow:
+      - api.zyte.com
 
 shim:
   upstream-port: 8089

@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,13 +11,14 @@ import (
 	"github.com/otiai10/opengraph/v2"
 
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/config"
+	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
 )
 
-// Result is the extracted metadata returned to callers. All fields except
-// URL are pointers so the JSON response can distinguish "missing" (null)
-// from "empty string". The favicon is intentionally absent here — callers
-// always receive favicon bytes inlined in the HTTP response so no client
-// ever has to GET a third-party favicon URL.
+// Result is the extracted metadata returned to callers. Text fields are
+// pointers so the JSON response can distinguish "missing" (null) from "empty
+// string". The favicon is intentionally absent here — callers always receive
+// favicon bytes inlined in the HTTP response so no client ever has to GET a
+// third-party favicon URL.
 type Result struct {
 	URL         string  `json:"url"`
 	Title       *string `json:"title"`
@@ -25,54 +27,53 @@ type Result struct {
 	Image       *string `json:"image"`
 }
 
-// Fetcher extracts Open Graph metadata from a URL using an SSRF-hardened
-// HTTP client.
+// Fetcher extracts Open Graph metadata from resources retrieved through Zyte.
 type Fetcher struct {
-	cfg    *config.Config
-	client *http.Client
+	cfg      *config.Config
+	upstream upstreamFetcher
 }
 
-// NewFetcher returns a Fetcher whose HTTP client refuses to follow redirects
-// into private/loopback/reserved addresses and enforces the configured body
-// size and redirect caps.
-func NewFetcher(cfg *config.Config) *Fetcher {
-	client := &http.Client{
-		Timeout: cfg.FetchTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= cfg.MaxRedirects {
-				return fmt.Errorf("stopped after %d redirects", cfg.MaxRedirects)
-			}
-			return ValidateTargetURL(req.Context(), req.URL.String())
-		},
-	}
-	return &Fetcher{cfg: cfg, client: client}
+type upstreamFetcher interface {
+	Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*zyte.Response, error)
+}
+
+// NewFetcher returns a Fetcher that retrieves upstream resources through Zyte.
+func NewFetcher(cfg *config.Config, upstream upstreamFetcher) *Fetcher {
+	return &Fetcher{cfg: cfg, upstream: upstream}
 }
 
 // Fetch resolves the page and returns its metadata. Any error is suitable to
 // report to callers; detailed error information is left to the caller's log.
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
-	if err := ValidateTargetURL(ctx, rawURL); err != nil {
+	if err := ValidateTargetURL(rawURL); err != nil {
 		return nil, &ClientError{msg: err.Error()}
 	}
 
-	ogp, err := opengraph.Fetch(rawURL, opengraph.Intent{
-		Context:    ctx,
-		HTTPClient: f.client,
-		Headers: map[string]string{
-			"User-Agent":      f.cfg.UserAgent,
-			"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-			"Accept-Language": "en-US,en;q=0.9",
-		},
-	})
+	page, err := f.upstream.Fetch(ctx, rawURL, f.cfg.MaxBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("fetch metadata: %w", err)
 	}
+	if page.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch metadata: status %d", page.StatusCode)
+	}
+	if !strings.HasPrefix(page.Header.Get("Content-Type"), "text/html") {
+		return nil, fmt.Errorf("fetch metadata: content type must be text/html")
+	}
 
-	// Resolve relative og:image URLs against the final page URL so callers
-	// always get an absolute link they can render.
-	ogp.ToAbs()
+	ogp := opengraph.New(page.URL)
+	if err := ogp.Parse(bytes.NewReader(page.Body)); err != nil {
+		return nil, fmt.Errorf("parse metadata: %w", err)
+	}
+
+	// Resolve relative og:image URLs against the final page URL before fetching.
+	if err := ogp.ToAbs(); err != nil {
+		return nil, fmt.Errorf("resolve metadata URLs: %w", err)
+	}
 
 	result := &Result{URL: ogp.URL}
+	if result.URL == "" {
+		result.URL = page.URL
+	}
 	if result.URL == "" {
 		result.URL = rawURL
 	}
@@ -86,8 +87,8 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
 		result.SiteName = &site
 	}
 	if len(ogp.Image) > 0 && strings.TrimSpace(ogp.Image[0].URL) != "" {
-		img := strings.TrimSpace(ogp.Image[0].URL)
-		result.Image = &img
+		image := strings.TrimSpace(ogp.Image[0].URL)
+		result.Image = &image
 	}
 	return result, nil
 }

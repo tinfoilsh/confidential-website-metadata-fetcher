@@ -15,6 +15,7 @@ import (
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/config"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/favicon"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/fetch"
+	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
 )
 
 var verbose = flag.Bool("v", false, "enable verbose logging")
@@ -26,10 +27,14 @@ func main() {
 	}
 
 	cfg := config.Load()
-	fetcher := fetch.NewFetcher(cfg)
+	if cfg.ZyteAPIKey == "" {
+		log.Fatal("ZYTE_API_KEY is required")
+	}
+	zyteClient := zyte.NewClient(cfg.ZyteAPIKey, cfg.FetchTimeout)
+	fetcher := fetch.NewFetcher(cfg, zyteClient)
 	resultCache := cache.New[fetch.Result](cfg.CacheMaxEntries, cfg.CacheTTL)
 	faviconFetcher := favicon.NewFetcher(
-		cfg.FetchTimeout,
+		zyteClient,
 		cfg.CacheMaxEntries,
 		cfg.CacheTTL,
 	)

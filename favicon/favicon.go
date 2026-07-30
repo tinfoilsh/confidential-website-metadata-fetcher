@@ -1,24 +1,23 @@
-// Package favicon proxies favicon lookups through the enclave so the
-// user's browser never talks to the upstream icon provider directly.
+// Package favicon proxies favicon lookups through Zyte so neither the user's
+// browser nor the enclave host talks to the upstream icon provider directly.
 //
 // The upstream is DuckDuckGo's free icon service
-// (https://icons.duckduckgo.com/ip3/<host>.ico). Requests are made
-// server-side from inside the CVM; the response body is streamed back to
-// the caller with a short-lived in-memory cache keyed by hostname.
+// (https://icons.duckduckgo.com/ip3/<host>.ico). Zyte makes the request and the
+// response body is returned to the caller with a short-lived in-memory cache
+// keyed by hostname.
 package favicon
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/cache"
+	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
 )
 
 const (
@@ -45,19 +44,23 @@ type Entry struct {
 	ContentType string
 }
 
-// Fetcher wraps an HTTP client and an LRU cache so the public handler can
+// Fetcher wraps an upstream fetcher and an LRU cache so the public handler can
 // be small and testable.
 type Fetcher struct {
-	client *http.Client
-	cache  *cache.LRU[Entry]
+	upstream upstreamFetcher
+	cache    *cache.LRU[Entry]
+}
+
+type upstreamFetcher interface {
+	Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*zyte.Response, error)
 }
 
 // NewFetcher builds a fetcher with sensible defaults for the favicon use
 // case.
-func NewFetcher(timeout time.Duration, cacheMaxEntries int, cacheTTL time.Duration) *Fetcher {
+func NewFetcher(upstream upstreamFetcher, cacheMaxEntries int, cacheTTL time.Duration) *Fetcher {
 	return &Fetcher{
-		client: &http.Client{Timeout: timeout},
-		cache:  cache.New[Entry](cacheMaxEntries, cacheTTL),
+		upstream: upstream,
+		cache:    cache.New[Entry](cacheMaxEntries, cacheTTL),
 	}
 }
 
@@ -81,34 +84,13 @@ func (f *Fetcher) Fetch(ctx context.Context, host string) (*Entry, bool, error) 
 		return &entry, true, nil
 	}
 
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		fmt.Sprintf(upstreamTemplate, host),
-		nil,
-	)
-	if err != nil {
-		return nil, false, fmt.Errorf("build upstream request: %w", err)
-	}
-	req.Header.Set("Accept", "image/*,*/*;q=0.8")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; MetadataFetchBot/1.0)")
-
-	resp, err := f.client.Do(req)
+	resp, err := f.upstream.Fetch(ctx, fmt.Sprintf(upstreamTemplate, host), maxBodyBytes)
 	if err != nil {
 		return nil, false, fmt.Errorf("%w: %v", ErrUpstreamFailed, err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, false, fmt.Errorf("%w: status %d", ErrUpstreamFailed, resp.StatusCode)
-	}
-
-	buf := &bytes.Buffer{}
-	if _, err := io.Copy(buf, io.LimitReader(resp.Body, maxBodyBytes+1)); err != nil {
-		return nil, false, fmt.Errorf("%w: %v", ErrUpstreamFailed, err)
-	}
-	if int64(buf.Len()) > maxBodyBytes {
-		return nil, false, fmt.Errorf("%w: body too large", ErrUpstreamFailed)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -116,7 +98,7 @@ func (f *Fetcher) Fetch(ctx context.Context, host string) (*Entry, bool, error) 
 		contentType = "image/x-icon"
 	}
 
-	entry := Entry{Body: buf.Bytes(), ContentType: contentType}
+	entry := Entry{Body: resp.Body, ContentType: contentType}
 	f.cache.Set(host, entry)
 	return &entry, false, nil
 }

@@ -99,7 +99,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 			return
 		}
-		log.WithFields(log.Fields{"err": err.Error()}).Warn("metadata fetch failed")
+		log.Warn("metadata fetch failed")
 		// Favicon only needs the hostname, so a paywalled, timed-out,
 		// or bot-blocked page should still surface its icon. Try the
 		// favicon lookup directly and return a partial response when
@@ -149,7 +149,7 @@ func (s *Server) fetchFavicon(r *http.Request, pageURL string) ([]byte, *string)
 	entry, _, err := s.faviconFetcher.Fetch(r.Context(), host)
 	if err != nil {
 		if !errors.Is(err, favicon.ErrInvalidHost) {
-			log.WithFields(log.Fields{"err": err.Error(), "host": host}).Debug("favicon fetch failed")
+			log.Debug("favicon fetch failed")
 		}
 		return nil, nil
 	}
