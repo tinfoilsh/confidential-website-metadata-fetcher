@@ -4,7 +4,7 @@ memory: 2048
 
 containers:
   - name: "metadata-fetch"
-    image: "ghcr.io/tinfoilsh/confidential-website-metadata-fetcher@sha256:0000000000000000000000000000000000000000000000000000000000000000" # placeholder - populated during release
+    image: "ghcr.io/tinfoilsh/confidential-website-metadata-fetcher@sha256:99c0f8bc82ab467f4e9824d0c0c4e8c8bc2d634a1b8e1a6c364747d0b0491f63" # v0.0.6
     restart: always
     networks: [zyte]
     secrets:
