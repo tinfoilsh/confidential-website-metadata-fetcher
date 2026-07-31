@@ -7,37 +7,24 @@ import (
 )
 
 type Config struct {
-	ListenAddr      string
-	FetchTimeout    time.Duration
-	MaxBodyBytes    int64
-	ZyteAPIKey      string
-	CacheMaxEntries int
-	CacheTTL        time.Duration
+	ListenAddr   string
+	FetchTimeout time.Duration
+	MaxBodyBytes int64
+	ZyteAPIKey   string
 }
 
 func Load() *Config {
 	return &Config{
-		ListenAddr:      getEnv("LISTEN_ADDR", ":8089"),
-		FetchTimeout:    getEnvDuration("FETCH_TIMEOUT", 15*time.Second),
-		MaxBodyBytes:    getEnvInt64("MAX_BODY_BYTES", 5*1024*1024),
-		ZyteAPIKey:      os.Getenv("ZYTE_API_KEY"),
-		CacheMaxEntries: getEnvInt("CACHE_MAX_ENTRIES", 2000),
-		CacheTTL:        getEnvDuration("CACHE_TTL", 24*time.Hour),
+		ListenAddr:   getEnv("LISTEN_ADDR", ":8089"),
+		FetchTimeout: getEnvDuration("FETCH_TIMEOUT", 15*time.Second),
+		MaxBodyBytes: getEnvInt64("MAX_BODY_BYTES", 5*1024*1024),
+		ZyteAPIKey:   os.Getenv("ZYTE_API_KEY"),
 	}
 }
 
 func getEnv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
-	}
-	return fallback
-}
-
-func getEnvInt(key string, fallback int) int {
-	if val := os.Getenv(key); val != "" {
-		if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
-			return parsed
-		}
 	}
 	return fallback
 }
