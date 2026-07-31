@@ -29,12 +29,7 @@ func main() {
 			return http.ErrUseLastResponse
 		},
 	}
-	server := NewServer(
-		fetcher,
-		faviconClient,
-		cfg.CacheMaxEntries,
-		cfg.CacheTTL,
-	)
+	server := NewServer(fetcher, faviconClient)
 
 	mux := http.NewServeMux()
 	server.Routes(mux)

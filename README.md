@@ -27,8 +27,6 @@ The service listens on `:8089` by default.
 | `LISTEN_ADDR` | `:8089` | Address to listen on |
 | `FETCH_TIMEOUT` | `15s` | Per-request timeout for upstream calls |
 | `MAX_BODY_BYTES` | `5242880` | Maximum decoded page size |
-| `CACHE_MAX_ENTRIES` | `2000` | LRU cache capacity |
-| `CACHE_TTL` | `24h` | Cache entry TTL |
 
 ## API
 
@@ -62,7 +60,8 @@ curl http://localhost:8089/metadata \
 ```
 
 Every Open Graph field is `null` when the source page does not expose the
-corresponding tag. `url` reflects the final URL after redirects.
+corresponding tag. `url` reflects the final URL after redirects. The service
+does not cache metadata; `cached` remains `false` for client compatibility.
 
 ### Fetch Favicon
 
@@ -92,6 +91,8 @@ does not fetch the target page through Zyte.
   necessarily receives the target URL and the destination sees Zyte's IP.
 - The returned `og:image` URL is loaded by the client, so its image host can
   observe the client's IP and request.
+- Metadata and favicons are never cached inside the enclave, preventing callers
+  from probing shared request history through response timing.
 - IP-literal targets and `*.local`, `*.internal`, and `*.localhost` hostnames
   are rejected without resolving the target hostname inside the enclave.
 - Only `http` and `https` URLs on the standard ports (80, 443) are accepted;
