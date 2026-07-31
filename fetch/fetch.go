@@ -15,9 +15,7 @@ import (
 
 // Result is the extracted metadata returned to callers. Text fields are
 // pointers so the JSON response can distinguish "missing" (null) from "empty
-// string". The favicon is intentionally absent here — callers always receive
-// favicon bytes inlined in the HTTP response so no client ever has to GET a
-// third-party favicon URL.
+// string".
 type Result struct {
 	URL         string  `json:"url"`
 	Title       *string `json:"title"`
