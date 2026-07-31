@@ -11,9 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/cache"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/fetch"
 )
 
@@ -41,13 +39,11 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-// Server wires the fetcher, cache, and HTTP handlers together so main.go can
-// stand the service up with one call.
+// Server wires the fetchers and HTTP handlers together so main.go can stand the
+// service up with one call.
 type Server struct {
 	fetcher       *fetch.Fetcher
-	cache         *cache.LRU[fetch.Result]
 	faviconClient httpDoer
-	faviconCache  *cache.LRU[faviconEntry]
 }
 
 type httpDoer interface {
@@ -57,14 +53,10 @@ type httpDoer interface {
 func NewServer(
 	fetcher *fetch.Fetcher,
 	faviconClient httpDoer,
-	cacheMaxEntries int,
-	cacheTTL time.Duration,
 ) *Server {
 	return &Server{
 		fetcher:       fetcher,
-		cache:         cache.New[fetch.Result](cacheMaxEntries, cacheTTL),
 		faviconClient: faviconClient,
-		faviconCache:  cache.New[faviconEntry](cacheMaxEntries, cacheTTL),
 	}
 }
 
@@ -96,14 +88,6 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	if cached, ok := s.cache.Get(targetURL); ok {
-		writeJSON(w, http.StatusOK, metadataResponse{
-			Result: cached,
-			Cached: true,
-		})
-		return
-	}
-
 	result, err := s.fetcher.Fetch(ctx, targetURL)
 	if err != nil {
 		log.Print("metadata fetch failed")
@@ -111,7 +95,6 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.cache.Set(targetURL, *result)
 	writeJSON(w, http.StatusOK, metadataResponse{
 		Result: *result,
 		Cached: false,
@@ -167,9 +150,6 @@ func (s *Server) fetchFavicon(ctx context.Context, pageURL string) faviconEntry 
 		return faviconEntry{}
 	}
 
-	if entry, ok := s.faviconCache.Get(host); ok {
-		return entry
-	}
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
@@ -199,7 +179,6 @@ func (s *Server) fetchFavicon(ctx context.Context, pageURL string) faviconEntry 
 		}
 	}
 	entry := faviconEntry{Body: body, ContentType: contentType}
-	s.faviconCache.Set(host, entry)
 	return entry
 }
 
