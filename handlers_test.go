@@ -2,32 +2,36 @@ package main
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
-
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
 )
 
-type upstreamFetchFunc func(context.Context, string, int64) (*zyte.Response, error)
+type httpDoFunc func(*http.Request) (*http.Response, error)
 
-func (fn upstreamFetchFunc) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*zyte.Response, error) {
-	return fn(ctx, targetURL, maxBodyBytes)
+func (fn httpDoFunc) Do(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
-func TestFetchFaviconUsesZyteAndCachesResponse(t *testing.T) {
+func TestFetchFaviconUsesDuckDuckGoAndCachesResponse(t *testing.T) {
 	const faviconURL = "https://icons.duckduckgo.com/ip3/example.com.ico"
 	requestCount := 0
-	upstream := upstreamFetchFunc(func(_ context.Context, targetURL string, maxBodyBytes int64) (*zyte.Response, error) {
+	client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
 		requestCount++
-		if targetURL != faviconURL || maxBodyBytes != maxFaviconBodyBytes {
-			t.Fatalf("unexpected request: url=%q max=%d", targetURL, maxBodyBytes)
+		if req.URL.String() != faviconURL {
+			t.Fatalf("request URL = %q, want %q", req.URL.String(), faviconURL)
 		}
-		return &zyte.Response{
-			ContentType: "image/x-icon",
-			Body:        []byte("icon"),
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"image/x-icon"}},
+			Body:       io.NopCloser(strings.NewReader("icon")),
+			Request:    req,
 		}, nil
 	})
-	server := NewServer(nil, upstream, 10, time.Minute)
+	server := NewServer(nil, client, 10, time.Minute)
 
 	for range 2 {
 		favicon := server.fetchFavicon(context.Background(), "https://example.com/page")
@@ -37,5 +41,27 @@ func TestFetchFaviconUsesZyteAndCachesResponse(t *testing.T) {
 	}
 	if requestCount != 1 {
 		t.Fatalf("upstream request count = %d, want 1", requestCount)
+	}
+}
+
+func TestFaviconEndpointReturnsInlineIconWithoutMetadataFetcher(t *testing.T) {
+	client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"image/x-icon"}},
+			Body:       io.NopCloser(strings.NewReader("icon")),
+			Request:    req,
+		}, nil
+	})
+	server := NewServer(nil, client, 10, time.Minute)
+	req := httptest.NewRequest(http.MethodPost, "/favicon", strings.NewReader(`{"url":"https://example.com/page"}`))
+	recorder := httptest.NewRecorder()
+
+	server.handleFavicon(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, `"favicon_bytes":"aWNvbg=="`) {
+		t.Fatalf("response body = %s", body)
 	}
 }

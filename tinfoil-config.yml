@@ -6,18 +6,20 @@ containers:
   - name: "metadata-fetch"
     image: "ghcr.io/tinfoilsh/confidential-website-metadata-fetcher@sha256:0000000000000000000000000000000000000000000000000000000000000000" # placeholder - populated during release
     restart: always
-    networks: [zyte]
+    networks: [outbound]
     secrets:
       - ZYTE_API_KEY
 
 networks:
-  zyte:
+  outbound:
     egress: allowlist
     allow:
       - api.zyte.com
+      - icons.duckduckgo.com
 
 shim:
   upstream-port: 8089
   paths:
     - /metadata
+    - /favicon
     - /health

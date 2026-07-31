@@ -23,9 +23,15 @@ func main() {
 	}
 	zyteClient := zyte.NewClient(cfg.ZyteAPIKey, cfg.FetchTimeout)
 	fetcher := fetch.NewFetcher(zyteClient, cfg.MaxBodyBytes)
+	faviconClient := &http.Client{
+		Timeout: cfg.FetchTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	server := NewServer(
 		fetcher,
-		zyteClient,
+		faviconClient,
 		cfg.CacheMaxEntries,
 		cfg.CacheTTL,
 	)
