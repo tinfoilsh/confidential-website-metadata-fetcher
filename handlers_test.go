@@ -118,6 +118,23 @@ func TestFaviconEndpointReturnsInlineIconWithoutMetadataFetcher(t *testing.T) {
 	}
 }
 
+func TestFetchFaviconAcceptsDeclaredSVGImage(t *testing.T) {
+	const faviconBody = `<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>`
+	client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"image/svg+xml"}},
+			Body:       io.NopCloser(strings.NewReader(faviconBody)),
+			Request:    req,
+		}, nil
+	})
+
+	result := NewServer(nil, client).fetchFavicon(context.Background(), "https://example.com/page")
+	if result.Status != faviconFound || result.ContentType != "image/svg+xml" {
+		t.Fatalf("unexpected favicon: %+v", result)
+	}
+}
+
 func TestFaviconEndpointReturnsLegacyDecodableMissingResponse(t *testing.T) {
 	for _, upstreamStatus := range []int{http.StatusNotFound, http.StatusGone} {
 		t.Run(http.StatusText(upstreamStatus), func(t *testing.T) {

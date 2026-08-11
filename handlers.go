@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -222,16 +223,35 @@ func (s *Server) fetchFavicon(ctx context.Context, pageURL string) faviconEntry 
 	if len(body) == 0 || int64(len(body)) > maxFaviconBodyBytes {
 		return faviconEntry{Status: faviconMalformed}
 	}
-	detectedContentType := http.DetectContentType(body)
-	if !strings.HasPrefix(detectedContentType, "image/") {
+	contentType, ok := validatedImageContentType(resp.Header.Get("Content-Type"), body)
+	if !ok {
 		return faviconEntry{Status: faviconMalformed}
-	}
-	contentType := detectedContentType
-	if declaredContentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type")); err == nil && declaredContentType == detectedContentType {
-		contentType = declaredContentType
 	}
 	entry := faviconEntry{Body: body, ContentType: contentType, Status: faviconFound}
 	return entry
+}
+
+func validatedImageContentType(header string, body []byte) (string, bool) {
+	detected := http.DetectContentType(body)
+	if strings.HasPrefix(detected, "image/") {
+		return detected, true
+	}
+
+	declared, _, err := mime.ParseMediaType(header)
+	if err != nil || !strings.HasPrefix(declared, "image/") {
+		return "", false
+	}
+	if detected == "application/octet-stream" {
+		return declared, true
+	}
+	if declared == "image/svg+xml" {
+		trimmed := bytes.TrimSpace(body)
+		if bytes.HasPrefix(trimmed, []byte("<svg")) ||
+			(bytes.HasPrefix(trimmed, []byte("<?xml")) && bytes.Contains(trimmed, []byte("<svg"))) {
+			return declared, true
+		}
+	}
+	return "", false
 }
 
 func sanitizeRetryAfter(value string, now time.Time) string {
