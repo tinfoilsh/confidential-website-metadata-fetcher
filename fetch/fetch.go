@@ -74,13 +74,15 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
 	if site := strings.TrimSpace(ogp.SiteName); site != "" {
 		result.SiteName = &site
 	}
-	if len(ogp.Image) > 0 && strings.TrimSpace(ogp.Image[0].URL) != "" {
-		imageRef, err := url.Parse(strings.TrimSpace(ogp.Image[0].URL))
+	for _, candidate := range ogp.Image {
+		imageRef, err := url.Parse(strings.TrimSpace(candidate.URL))
+		if err != nil || imageRef.String() == "" {
+			continue
+		}
+		image, err := NormalizeTargetURL(baseURL.ResolveReference(imageRef).String())
 		if err == nil {
-			image, err := NormalizeTargetURL(baseURL.ResolveReference(imageRef).String())
-			if err == nil {
-				result.Image = &image
-			}
+			result.Image = &image
+			break
 		}
 	}
 	return result, nil
