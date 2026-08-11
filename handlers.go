@@ -10,7 +10,9 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/fetch"
 )
@@ -18,6 +20,7 @@ import (
 const (
 	maxRequestBodyBytes int64 = 64 * 1024
 	maxFaviconBodyBytes int64 = 256 * 1024
+	maxRetryAfter             = 24 * time.Hour
 	faviconURLTemplate        = "https://icons.duckduckgo.com/ip3/%s.ico"
 )
 
@@ -26,6 +29,7 @@ type metadataRequest struct {
 }
 
 type faviconResponse struct {
+	Status             string `json:"status"`
 	FaviconBytes       []byte `json:"favicon_bytes"`
 	FaviconContentType string `json:"favicon_content_type"`
 }
@@ -37,6 +41,12 @@ type metadataResponse struct {
 
 type errorResponse struct {
 	Error string `json:"error"`
+}
+
+type faviconErrorResponse struct {
+	Error     string `json:"error"`
+	Code      string `json:"code"`
+	Retryable bool   `json:"retryable"`
 }
 
 // Server wires the fetchers and HTTP handlers together so main.go can stand the
@@ -63,7 +73,18 @@ func NewServer(
 type faviconEntry struct {
 	Body        []byte
 	ContentType string
+	Status      faviconStatus
+	RetryAfter  string
 }
+
+type faviconStatus string
+
+const (
+	faviconFound       faviconStatus = "found"
+	faviconMissing     faviconStatus = "missing"
+	faviconUnavailable faviconStatus = "unavailable"
+	faviconMalformed   faviconStatus = "malformed"
+)
 
 // Routes registers the service endpoints on the given mux.
 func (s *Server) Routes(mux *http.ServeMux) {
@@ -112,14 +133,35 @@ func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	favicon := s.fetchFavicon(r.Context(), targetURL)
-	if len(favicon.Body) == 0 {
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "failed to fetch favicon"})
-		return
+	switch favicon.Status {
+	case faviconFound:
+		writeJSON(w, http.StatusOK, faviconResponse{
+			Status:             string(favicon.Status),
+			FaviconBytes:       favicon.Body,
+			FaviconContentType: favicon.ContentType,
+		})
+	case faviconMissing:
+		writeJSON(w, http.StatusOK, faviconResponse{
+			Status:             string(favicon.Status),
+			FaviconBytes:       []byte{},
+			FaviconContentType: "",
+		})
+	case faviconUnavailable:
+		if retryAfter := sanitizeRetryAfter(favicon.RetryAfter, time.Now()); retryAfter != "" {
+			w.Header().Set("Retry-After", retryAfter)
+		}
+		writeJSON(w, http.StatusServiceUnavailable, faviconErrorResponse{
+			Error:     "favicon temporarily unavailable",
+			Code:      "favicon_unavailable",
+			Retryable: true,
+		})
+	default:
+		writeJSON(w, http.StatusBadGateway, faviconErrorResponse{
+			Error:     "invalid favicon response from upstream",
+			Code:      "malformed_upstream_response",
+			Retryable: false,
+		})
 	}
-	writeJSON(w, http.StatusOK, faviconResponse{
-		FaviconBytes:       favicon.Body,
-		FaviconContentType: favicon.ContentType,
-	})
 }
 
 func decodeTargetURL(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -143,11 +185,11 @@ func decodeTargetURL(w http.ResponseWriter, r *http.Request) (string, bool) {
 func (s *Server) fetchFavicon(ctx context.Context, pageURL string) faviconEntry {
 	parsed, err := url.Parse(pageURL)
 	if err != nil {
-		return faviconEntry{}
+		return faviconEntry{Status: faviconMalformed}
 	}
 	host := parsed.Hostname()
 	if host == "" {
-		return faviconEntry{}
+		return faviconEntry{Status: faviconMalformed}
 	}
 
 	req, err := http.NewRequestWithContext(
@@ -157,32 +199,62 @@ func (s *Server) fetchFavicon(ctx context.Context, pageURL string) faviconEntry 
 		nil,
 	)
 	if err != nil {
-		return faviconEntry{}
+		return faviconEntry{Status: faviconMalformed}
 	}
 	resp, err := s.faviconClient.Do(req)
 	if err != nil {
-		return faviconEntry{}
+		return faviconEntry{Status: faviconUnavailable}
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		return faviconEntry{Status: faviconMissing}
+	}
+	if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests ||
+		(resp.StatusCode >= http.StatusInternalServerError && resp.StatusCode <= 599) {
+		return faviconEntry{Status: faviconUnavailable, RetryAfter: resp.Header.Get("Retry-After")}
+	}
 	if resp.StatusCode != http.StatusOK {
-		return faviconEntry{}
+		return faviconEntry{Status: faviconMalformed}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFaviconBodyBytes+1))
-	if err != nil || int64(len(body)) > maxFaviconBodyBytes {
-		return faviconEntry{}
+	if err != nil {
+		return faviconEntry{Status: faviconUnavailable}
+	}
+	if len(body) == 0 || int64(len(body)) > maxFaviconBodyBytes {
+		return faviconEntry{Status: faviconMalformed}
 	}
 	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil || !strings.HasPrefix(contentType, "image/") {
 		contentType = http.DetectContentType(body)
 		if !strings.HasPrefix(contentType, "image/") {
-			return faviconEntry{}
+			return faviconEntry{Status: faviconMalformed}
 		}
 	}
-	entry := faviconEntry{Body: body, ContentType: contentType}
-	return entry
+	return faviconEntry{Body: body, ContentType: contentType, Status: faviconFound}
+}
+
+func sanitizeRetryAfter(value string, now time.Time) string {
+	value = strings.TrimSpace(value)
+	if seconds, err := strconv.ParseUint(value, 10, 64); err == nil {
+		if seconds <= uint64(maxRetryAfter/time.Second) {
+			return strconv.FormatUint(seconds, 10)
+		}
+		return ""
+	}
+
+	retryAt, err := http.ParseTime(value)
+	if err != nil {
+		return ""
+	}
+	delay := retryAt.Sub(now)
+	if delay < 0 || delay > maxRetryAfter {
+		return ""
+	}
+	return retryAt.UTC().Format(http.TimeFormat)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(body); err != nil && !errors.Is(err, http.ErrBodyNotAllowed) {

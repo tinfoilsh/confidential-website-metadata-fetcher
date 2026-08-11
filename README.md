@@ -65,16 +65,24 @@ does not cache metadata; `cached` remains `false` for client compatibility.
 
 ### Fetch Favicon
 
-`POST /favicon` accepts the same request body as `/metadata` and returns only
-`favicon_bytes` and `favicon_content_type`. It contacts DuckDuckGo directly and
-does not fetch the target page through Zyte.
+`POST /favicon` accepts the same request body as `/metadata`. It contacts
+DuckDuckGo directly and does not fetch the target page through Zyte.
 
 ```json
 {
+  "status": "found",
   "favicon_bytes": "<base64-encoded image bytes>",
   "favicon_content_type": "image/x-icon"
 }
 ```
+
+Upstream 404/410 responses return HTTP 200 with `status: "missing"` and empty
+legacy fields. Transport failures, timeouts, 429s, and upstream 5xx responses
+return HTTP 503 with `code: "favicon_unavailable"`, `retryable: true`, and a
+valid upstream `Retry-After` when supplied. Malformed or other upstream
+responses return HTTP 502 with `code: "malformed_upstream_response"` and
+`retryable: false`. Favicon requests are not retried or cached; API responses
+use `Cache-Control: no-store`.
 
 ### Health Check
 
