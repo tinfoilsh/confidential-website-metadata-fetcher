@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -210,7 +209,8 @@ func (s *Server) fetchFavicon(ctx context.Context, pageURL string) faviconEntry 
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
 		return faviconEntry{Status: faviconMissing}
 	}
-	if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
+	if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests ||
+		(resp.StatusCode >= http.StatusInternalServerError && resp.StatusCode <= 599) {
 		return faviconEntry{Status: faviconUnavailable, RetryAfter: resp.Header.Get("Retry-After")}
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -223,35 +223,14 @@ func (s *Server) fetchFavicon(ctx context.Context, pageURL string) faviconEntry 
 	if len(body) == 0 || int64(len(body)) > maxFaviconBodyBytes {
 		return faviconEntry{Status: faviconMalformed}
 	}
-	contentType, ok := validatedImageContentType(resp.Header.Get("Content-Type"), body)
-	if !ok {
-		return faviconEntry{Status: faviconMalformed}
-	}
-	entry := faviconEntry{Body: body, ContentType: contentType, Status: faviconFound}
-	return entry
-}
-
-func validatedImageContentType(header string, body []byte) (string, bool) {
-	detected := http.DetectContentType(body)
-	if strings.HasPrefix(detected, "image/") {
-		return detected, true
-	}
-
-	declared, _, err := mime.ParseMediaType(header)
-	if err != nil || !strings.HasPrefix(declared, "image/") {
-		return "", false
-	}
-	if detected == "application/octet-stream" {
-		return declared, true
-	}
-	if declared == "image/svg+xml" {
-		trimmed := bytes.TrimSpace(body)
-		if bytes.HasPrefix(trimmed, []byte("<svg")) ||
-			(bytes.HasPrefix(trimmed, []byte("<?xml")) && bytes.Contains(trimmed, []byte("<svg"))) {
-			return declared, true
+	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil || !strings.HasPrefix(contentType, "image/") {
+		contentType = http.DetectContentType(body)
+		if !strings.HasPrefix(contentType, "image/") {
+			return faviconEntry{Status: faviconMalformed}
 		}
 	}
-	return "", false
+	return faviconEntry{Body: body, ContentType: contentType, Status: faviconFound}
 }
 
 func sanitizeRetryAfter(value string, now time.Time) string {

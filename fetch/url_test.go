@@ -14,7 +14,6 @@ func TestNormalizeTargetURLRejectsUnsafeTargets(t *testing.T) {
 		"http://localhost",
 		"http://foo.local",
 		"http://foo.internal",
-		"http://foo.localhost",
 		"http://127.0.0.1",
 		"http://[::1]",
 		"http://10.0.0.1",

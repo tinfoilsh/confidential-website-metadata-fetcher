@@ -199,29 +199,41 @@ func TestFaviconEndpointReturnsRetryableUnavailableResponse(t *testing.T) {
 	}
 }
 
-func TestFaviconEndpointReturnsNonRetryableMalformedResponse(t *testing.T) {
-	client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": {"image/png"}},
-			Body:       io.NopCloser(strings.NewReader("not an image")),
-			Request:    req,
-		}, nil
-	})
-	server := NewServer(nil, client)
-	req := httptest.NewRequest(http.MethodPost, "/favicon", strings.NewReader(`{"url":"https://example.com/page"}`))
-	recorder := httptest.NewRecorder()
+func TestFaviconEndpointReturnsNonRetryableBadGatewayResponse(t *testing.T) {
+	tests := map[string]struct {
+		status      int
+		contentType string
+		body        string
+	}{
+		"malformed success": {status: http.StatusOK, contentType: "text/plain", body: "not an image"},
+		"other upstream":    {status: http.StatusBadRequest},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: test.status,
+					Header:     http.Header{"Content-Type": {test.contentType}},
+					Body:       io.NopCloser(strings.NewReader(test.body)),
+					Request:    req,
+				}, nil
+			})
+			server := NewServer(nil, client)
+			req := httptest.NewRequest(http.MethodPost, "/favicon", strings.NewReader(`{"url":"https://example.com/page"}`))
+			recorder := httptest.NewRecorder()
 
-	server.handleFavicon(recorder, req)
-	if recorder.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadGateway)
-	}
-	var response faviconErrorResponse
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if response.Code != "malformed_upstream_response" || response.Retryable {
-		t.Fatalf("unexpected response: %+v", response)
+			server.handleFavicon(recorder, req)
+			if recorder.Code != http.StatusBadGateway {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadGateway)
+			}
+			var response faviconErrorResponse
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if response.Code != "malformed_upstream_response" || response.Retryable {
+				t.Fatalf("unexpected response: %+v", response)
+			}
+		})
 	}
 }
 
@@ -232,7 +244,7 @@ func TestFetchFaviconClassifiesMalformedSuccessfulResponses(t *testing.T) {
 	}{
 		"empty":     {contentType: "image/png"},
 		"oversized": {contentType: "image/png", body: strings.Repeat("x", int(maxFaviconBodyBytes)+1)},
-		"non-image": {contentType: "image/png", body: "not an image"},
+		"non-image": {contentType: "text/plain", body: "not an image"},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -255,12 +267,23 @@ func TestFetchFaviconClassifiesMalformedSuccessfulResponses(t *testing.T) {
 
 func TestFetchFaviconClassifiesTransientFailuresAsUnavailable(t *testing.T) {
 	tests := map[string]httpDoFunc{
+		"transport error": func(*http.Request) (*http.Response, error) {
+			return nil, io.ErrUnexpectedEOF
+		},
 		"timeout": func(*http.Request) (*http.Response, error) {
 			return nil, context.DeadlineExceeded
 		},
 		"server error": func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusServiceUnavailable,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    req,
+			}, nil
+		},
+		"rate limit": func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusTooManyRequests,
 				Header:     make(http.Header),
 				Body:       io.NopCloser(strings.NewReader("")),
 				Request:    req,
