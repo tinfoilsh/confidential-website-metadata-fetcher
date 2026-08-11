@@ -21,12 +21,12 @@ The service listens on `:8089` by default.
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ZYTE_API_KEY` | required | Zyte API credential used for metadata requests |
-| `LISTEN_ADDR` | `:8089` | Address to listen on |
-| `FETCH_TIMEOUT` | `15s` | Per-request timeout for upstream calls |
-| `MAX_BODY_BYTES` | `5242880` | Maximum decoded page size |
+| Variable         | Default   | Description                                    |
+| ---------------- | --------- | ---------------------------------------------- |
+| `ZYTE_API_KEY`   | required  | Zyte API credential used for metadata requests |
+| `LISTEN_ADDR`    | `:8089`   | Address to listen on                           |
+| `FETCH_TIMEOUT`  | `15s`     | Per-request timeout for upstream calls         |
+| `MAX_BODY_BYTES` | `5242880` | Maximum decoded page size                      |
 
 ## API
 
@@ -42,9 +42,9 @@ curl http://localhost:8089/metadata \
 
 **Request:**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `url` | string | yes | Absolute http/https URL to scrape |
+| Field | Type   | Required | Description                       |
+| ----- | ------ | -------- | --------------------------------- |
+| `url` | string | yes      | Absolute http/https URL to scrape |
 
 **Response:**
 
@@ -65,16 +65,28 @@ does not cache metadata; `cached` remains `false` for client compatibility.
 
 ### Fetch Favicon
 
-`POST /favicon` accepts the same request body as `/metadata` and returns only
-`favicon_bytes` and `favicon_content_type`. It contacts DuckDuckGo directly and
-does not fetch the target page through Zyte.
+`POST /favicon` accepts the same request body as `/metadata`. It contacts
+DuckDuckGo directly and does not fetch the target page through Zyte. Successful
+and definitively missing results both return HTTP 200 with a `status`
+discriminator:
 
 ```json
 {
+  "status": "found",
   "favicon_bytes": "<base64-encoded image bytes>",
   "favicon_content_type": "image/x-icon"
 }
 ```
+
+A DuckDuckGo 404 or 410 returns `status: "missing"` with empty strings for both
+legacy fields. Transient transport failures, timeouts, rate limits, and upstream
+5xx responses return HTTP 503 with `code: "favicon_unavailable"` and
+`retryable: true`; a valid upstream `Retry-After` of at most 24 hours is
+forwarded when present.
+An empty, oversized, or non-image HTTP 200 response returns HTTP 502 with
+`code: "malformed_upstream_response"` and `retryable: false`. Invalid request
+URLs and bodies continue to return HTTP 400. The service does not retry or cache
+favicon requests. API responses include `Cache-Control: no-store`.
 
 ### Health Check
 

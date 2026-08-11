@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/fetch"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
@@ -25,7 +27,10 @@ func (fn upstreamFetchFunc) Fetch(ctx context.Context, targetURL string, maxBody
 }
 
 func TestFetchFaviconDoesNotCacheResponse(t *testing.T) {
-	const faviconURL = "https://icons.duckduckgo.com/ip3/example.com.ico"
+	const (
+		faviconURL  = "https://icons.duckduckgo.com/ip3/example.com.ico"
+		faviconBody = "\x00\x00\x01\x00icon"
+	)
 	requestCount := 0
 	client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
 		requestCount++
@@ -35,7 +40,7 @@ func TestFetchFaviconDoesNotCacheResponse(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": {"image/x-icon"}},
-			Body:       io.NopCloser(strings.NewReader("icon")),
+			Body:       io.NopCloser(strings.NewReader(faviconBody)),
 			Request:    req,
 		}, nil
 	})
@@ -43,7 +48,7 @@ func TestFetchFaviconDoesNotCacheResponse(t *testing.T) {
 
 	for range 2 {
 		favicon := server.fetchFavicon(context.Background(), "https://example.com/page")
-		if string(favicon.Body) != "icon" || favicon.ContentType != "image/x-icon" {
+		if favicon.Status != faviconFound || string(favicon.Body) != faviconBody || favicon.ContentType != "image/x-icon" {
 			t.Fatalf("unexpected favicon: %+v", favicon)
 		}
 	}
@@ -71,6 +76,9 @@ func TestMetadataEndpointDoesNotCacheResponse(t *testing.T) {
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 		}
+		if cacheControl := recorder.Header().Get("Cache-Control"); cacheControl != "no-store" {
+			t.Fatalf("Cache-Control = %q, want no-store", cacheControl)
+		}
 		if body := recorder.Body.String(); !strings.Contains(body, `"cached":false`) {
 			t.Fatalf("response body = %s", body)
 		}
@@ -81,11 +89,12 @@ func TestMetadataEndpointDoesNotCacheResponse(t *testing.T) {
 }
 
 func TestFaviconEndpointReturnsInlineIconWithoutMetadataFetcher(t *testing.T) {
+	const faviconBody = "\x00\x00\x01\x00icon"
 	client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": {"image/x-icon"}},
-			Body:       io.NopCloser(strings.NewReader("icon")),
+			Body:       io.NopCloser(strings.NewReader(faviconBody)),
 			Request:    req,
 		}, nil
 	})
@@ -97,7 +106,198 @@ func TestFaviconEndpointReturnsInlineIconWithoutMetadataFetcher(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
-	if body := recorder.Body.String(); !strings.Contains(body, `"favicon_bytes":"aWNvbg=="`) {
-		t.Fatalf("response body = %s", body)
+	if cacheControl := recorder.Header().Get("Cache-Control"); cacheControl != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", cacheControl)
+	}
+	var response faviconResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Status != string(faviconFound) || string(response.FaviconBytes) != faviconBody || response.FaviconContentType != "image/x-icon" {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+}
+
+func TestFaviconEndpointReturnsLegacyDecodableMissingResponse(t *testing.T) {
+	for _, upstreamStatus := range []int{http.StatusNotFound, http.StatusGone} {
+		t.Run(http.StatusText(upstreamStatus), func(t *testing.T) {
+			client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: upstreamStatus,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("")),
+					Request:    req,
+				}, nil
+			})
+			server := NewServer(nil, client)
+			req := httptest.NewRequest(http.MethodPost, "/favicon", strings.NewReader(`{"url":"https://example.com/page"}`))
+			recorder := httptest.NewRecorder()
+
+			server.handleFavicon(recorder, req)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+			}
+			var response map[string]any
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if response["status"] != string(faviconMissing) || response["favicon_bytes"] != "" || response["favicon_content_type"] != "" {
+				t.Fatalf("unexpected response: %v", response)
+			}
+		})
+	}
+}
+
+func TestFaviconEndpointReturnsRetryableUnavailableResponse(t *testing.T) {
+	requestCount := 0
+	client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Retry-After": {"120"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    req,
+		}, nil
+	})
+	server := NewServer(nil, client)
+	req := httptest.NewRequest(http.MethodPost, "/favicon", strings.NewReader(`{"url":"https://example.com/page"}`))
+	recorder := httptest.NewRecorder()
+
+	server.handleFavicon(recorder, req)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+	if retryAfter := recorder.Header().Get("Retry-After"); retryAfter != "120" {
+		t.Fatalf("Retry-After = %q, want 120", retryAfter)
+	}
+	var response faviconErrorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Code != "favicon_unavailable" || !response.Retryable {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	if requestCount != 1 {
+		t.Fatalf("upstream request count = %d, want 1", requestCount)
+	}
+}
+
+func TestFaviconEndpointReturnsNonRetryableMalformedResponse(t *testing.T) {
+	client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"image/png"}},
+			Body:       io.NopCloser(strings.NewReader("not an image")),
+			Request:    req,
+		}, nil
+	})
+	server := NewServer(nil, client)
+	req := httptest.NewRequest(http.MethodPost, "/favicon", strings.NewReader(`{"url":"https://example.com/page"}`))
+	recorder := httptest.NewRecorder()
+
+	server.handleFavicon(recorder, req)
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadGateway)
+	}
+	var response faviconErrorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Code != "malformed_upstream_response" || response.Retryable {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+}
+
+func TestFetchFaviconClassifiesMalformedSuccessfulResponses(t *testing.T) {
+	tests := map[string]struct {
+		contentType string
+		body        string
+	}{
+		"empty":     {contentType: "image/png"},
+		"oversized": {contentType: "image/png", body: strings.Repeat("x", int(maxFaviconBodyBytes)+1)},
+		"non-image": {contentType: "image/png", body: "not an image"},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			client := httpDoFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {test.contentType}},
+					Body:       io.NopCloser(strings.NewReader(test.body)),
+					Request:    req,
+				}, nil
+			})
+
+			result := NewServer(nil, client).fetchFavicon(context.Background(), "https://example.com/page")
+			if result.Status != faviconMalformed {
+				t.Fatalf("status = %q, want %q", result.Status, faviconMalformed)
+			}
+		})
+	}
+}
+
+func TestFetchFaviconClassifiesTransientFailuresAsUnavailable(t *testing.T) {
+	tests := map[string]httpDoFunc{
+		"timeout": func(*http.Request) (*http.Response, error) {
+			return nil, context.DeadlineExceeded
+		},
+		"server error": func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    req,
+			}, nil
+		},
+		"request timeout": func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusRequestTimeout,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    req,
+			}, nil
+		},
+	}
+	for name, client := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := NewServer(nil, client).fetchFavicon(context.Background(), "https://example.com/page")
+			if result.Status != faviconUnavailable {
+				t.Fatalf("status = %q, want %q", result.Status, faviconUnavailable)
+			}
+		})
+	}
+}
+
+func TestSanitizeRetryAfter(t *testing.T) {
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, time.UTC)
+	validDate := now.Add(time.Hour).Format(http.TimeFormat)
+	tests := map[string]struct {
+		value string
+		want  string
+	}{
+		"delta seconds": {value: " 120 ", want: "120"},
+		"HTTP date":     {value: validDate, want: validDate},
+		"invalid":       {value: "later", want: ""},
+		"negative":      {value: "-1", want: ""},
+		"past date":     {value: now.Add(-time.Hour).Format(http.TimeFormat), want: ""},
+		"excessive":     {value: "86401", want: ""},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := sanitizeRetryAfter(test.value, now); got != test.want {
+				t.Fatalf("sanitizeRetryAfter(%q) = %q, want %q", test.value, got, test.want)
+			}
+		})
+	}
+}
+
+func TestFaviconEndpointRejectsInvalidInput(t *testing.T) {
+	server := NewServer(nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/favicon", strings.NewReader(`{"url":"http://localhost/icon"}`))
+	recorder := httptest.NewRecorder()
+
+	server.handleFavicon(recorder, req)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
 	}
 }
