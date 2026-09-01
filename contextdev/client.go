@@ -73,6 +73,9 @@ func (c *Client) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64
 	if err != nil {
 		var apiErr *sdk.Error
 		if errors.As(err, &apiErr) {
+			// Deliberately not wrapping apiErr: its Error() string includes
+			// the full request URL (carrying the confidential target URL) and
+			// raw response JSON, which must not propagate into logs.
 			return nil, fmt.Errorf("context.dev request failed with status %d", apiErr.StatusCode)
 		}
 		return nil, fmt.Errorf("context.dev request failed: %w", err)
@@ -122,7 +125,9 @@ func (c *limitedHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	if err != nil || resp == nil || resp.Body == nil {
 		return resp, err
 	}
-	resp.Body = &limitedReadCloser{inner: resp.Body, remaining: c.maxBytes}
+	// Allow one extra byte so a response of exactly maxBytes still reaches
+	// EOF while anything larger fails on the next read.
+	resp.Body = &limitedReadCloser{inner: resp.Body, remaining: c.maxBytes + 1}
 	return resp, nil
 }
 
@@ -132,11 +137,14 @@ type limitedReadCloser struct {
 }
 
 func (l *limitedReadCloser) Read(p []byte) (int, error) {
+	if l.remaining <= 0 {
+		return 0, fmt.Errorf("context.dev response too large")
+	}
+	if int64(len(p)) > l.remaining {
+		p = p[:l.remaining]
+	}
 	n, err := l.inner.Read(p)
 	l.remaining -= int64(n)
-	if l.remaining < 0 {
-		return n, fmt.Errorf("context.dev response too large")
-	}
 	return n, err
 }
 

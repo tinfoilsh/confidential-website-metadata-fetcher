@@ -87,6 +87,29 @@ func TestFetchRejectsOversizedUpstreamBody(t *testing.T) {
 	}
 }
 
+func TestFetchRejectsAPIResponseExceedingReadLimit(t *testing.T) {
+	const maxBodyBytes = 4
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, map[string]any{
+			"success": true,
+			"html":    strings.Repeat("x", int(maxBodyBytes*apiResponseSizeMultiplier)+maxAPIResponseOverhead+1024),
+			"url":     "https://example.com",
+			"type":    "html",
+			"metadata": map[string]any{
+				"sourceUrl": "https://example.com",
+				"finalUrl":  "https://example.com",
+			},
+			"cache_metadata": map[string]any{"status": "zdr", "age_ms": 0},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", time.Second, option.WithBaseURL(server.URL), option.WithMaxRetries(0))
+	if _, err := client.Fetch(context.Background(), "https://example.com", maxBodyBytes); err == nil {
+		t.Fatal("expected read limit error for oversized API response")
+	}
+}
+
 func TestFetchRejectsBodyLimitThatWouldOverflow(t *testing.T) {
 	client := NewClient("test-api-key", time.Second)
 	if _, err := client.Fetch(context.Background(), "https://example.com", maxSupportedBodyBytes+1); err == nil {
