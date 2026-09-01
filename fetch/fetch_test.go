@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
+	"github.com/tinfoilsh/confidential-website-metadata-fetcher/contextdev"
 )
 
-type upstreamFetchFunc func(context.Context, string, int64) (*zyte.Response, error)
+type upstreamFetchFunc func(context.Context, string, int64) (*contextdev.Response, error)
 
-func (fn upstreamFetchFunc) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*zyte.Response, error) {
+func (fn upstreamFetchFunc) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*contextdev.Response, error) {
 	return fn(ctx, targetURL, maxBodyBytes)
 }
 
@@ -20,12 +20,12 @@ func TestFetchRetrievesPageAndReturnsImageURL(t *testing.T) {
 		imageURL = "https://example.com/images/cover.jpg"
 	)
 	requestedURLs := []string{}
-	upstream := upstreamFetchFunc(func(_ context.Context, targetURL string, _ int64) (*zyte.Response, error) {
+	upstream := upstreamFetchFunc(func(_ context.Context, targetURL string, _ int64) (*contextdev.Response, error) {
 		requestedURLs = append(requestedURLs, targetURL)
 		if targetURL != pageURL {
 			t.Fatalf("unexpected upstream URL %q", targetURL)
 		}
-		return &zyte.Response{
+		return &contextdev.Response{
 			URL:         finalURL,
 			ContentType: "text/html; charset=utf-8",
 			Body: []byte(`<html><head>

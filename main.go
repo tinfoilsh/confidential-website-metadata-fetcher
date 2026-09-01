@@ -10,19 +10,19 @@ import (
 	"time"
 
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/config"
+	"github.com/tinfoilsh/confidential-website-metadata-fetcher/contextdev"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/fetch"
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
 )
 
 const writeTimeoutGrace = 5 * time.Second
 
 func main() {
 	cfg := config.Load()
-	if cfg.ZyteAPIKey == "" {
-		log.Fatal("ZYTE_API_KEY is required")
+	if cfg.ContextDevAPIKey == "" {
+		log.Fatal("CONTEXT_DEV_API_KEY is required")
 	}
-	zyteClient := zyte.NewClient(cfg.ZyteAPIKey, cfg.FetchTimeout)
-	fetcher := fetch.NewFetcher(zyteClient, cfg.MaxBodyBytes)
+	contextDevClient := contextdev.NewClient(cfg.ContextDevAPIKey, cfg.FetchTimeout)
+	fetcher := fetch.NewFetcher(contextDevClient, cfg.MaxBodyBytes)
 	faviconClient := &http.Client{
 		Timeout: cfg.FetchTimeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {

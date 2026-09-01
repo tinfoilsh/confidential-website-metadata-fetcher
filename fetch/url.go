@@ -8,7 +8,7 @@ import (
 )
 
 // NormalizeTargetURL validates and canonicalizes a URL without resolving its
-// hostname. DNS is intentionally left to Zyte.
+// hostname. DNS is intentionally left to context.dev.
 func NormalizeTargetURL(rawURL string) (string, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
