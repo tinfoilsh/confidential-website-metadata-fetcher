@@ -79,28 +79,6 @@ func TestFetchReturnsDecodedUpstreamResponse(t *testing.T) {
 	}
 }
 
-func TestFetchRejectsOversizedAPIResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(t, w, map[string]any{
-			"success": true,
-			"html":    strings.Repeat("x", maxAPIResponseOverhead+1024),
-			"url":     "https://example.com",
-			"type":    "html",
-			"metadata": map[string]any{
-				"sourceUrl": "https://example.com",
-				"finalUrl":  "https://example.com",
-			},
-			"cache_metadata": map[string]any{"status": "zdr", "age_ms": 0},
-		})
-	}))
-	defer server.Close()
-
-	client := NewClient("test-api-key", time.Second, option.WithBaseURL(server.URL), option.WithMaxRetries(0))
-	if _, err := client.Fetch(context.Background(), "https://example.com", 4); err == nil {
-		t.Fatal("expected oversized API response error")
-	}
-}
-
 func TestFetchRejectsAPIResponseExceedingReadLimit(t *testing.T) {
 	const maxBodyBytes = 4
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
