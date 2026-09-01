@@ -8,13 +8,13 @@ containers:
     restart: always
     networks: [outbound]
     secrets:
-      - ZYTE_API_KEY
+      - CONTEXT_DEV_API_KEY
 
 networks:
   outbound:
     egress: allowlist
     allow:
-      - api.zyte.com
+      - api.context.dev
       - icons.duckduckgo.com
 
 shim:

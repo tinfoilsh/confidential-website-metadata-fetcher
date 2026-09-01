@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoilsh/confidential-website-metadata-fetcher/contextdev"
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/fetch"
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
 )
 
 type httpDoFunc func(*http.Request) (*http.Response, error)
@@ -20,9 +20,9 @@ func (fn httpDoFunc) Do(req *http.Request) (*http.Response, error) {
 	return fn(req)
 }
 
-type upstreamFetchFunc func(context.Context, string, int64) (*zyte.Response, error)
+type upstreamFetchFunc func(context.Context, string, int64) (*contextdev.Response, error)
 
-func (fn upstreamFetchFunc) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*zyte.Response, error) {
+func (fn upstreamFetchFunc) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64) (*contextdev.Response, error) {
 	return fn(ctx, targetURL, maxBodyBytes)
 }
 
@@ -59,9 +59,9 @@ func TestFetchFaviconDoesNotCacheResponse(t *testing.T) {
 
 func TestMetadataEndpointDoesNotCacheResponse(t *testing.T) {
 	requestCount := 0
-	upstream := upstreamFetchFunc(func(_ context.Context, targetURL string, _ int64) (*zyte.Response, error) {
+	upstream := upstreamFetchFunc(func(_ context.Context, targetURL string, _ int64) (*contextdev.Response, error) {
 		requestCount++
-		return &zyte.Response{
+		return &contextdev.Response{
 			URL:         targetURL,
 			ContentType: "text/html",
 			Body:        []byte(`<meta property="og:title" content="Example">`),

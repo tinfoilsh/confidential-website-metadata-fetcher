@@ -7,18 +7,18 @@ import (
 )
 
 type Config struct {
-	ListenAddr   string
-	FetchTimeout time.Duration
-	MaxBodyBytes int64
-	ZyteAPIKey   string
+	ListenAddr       string
+	FetchTimeout     time.Duration
+	MaxBodyBytes     int64
+	ContextDevAPIKey string
 }
 
 func Load() *Config {
 	return &Config{
-		ListenAddr:   getEnv("LISTEN_ADDR", ":8089"),
-		FetchTimeout: getEnvDuration("FETCH_TIMEOUT", 15*time.Second),
-		MaxBodyBytes: getEnvInt64("MAX_BODY_BYTES", 5*1024*1024),
-		ZyteAPIKey:   os.Getenv("ZYTE_API_KEY"),
+		ListenAddr:       getEnv("LISTEN_ADDR", ":8089"),
+		FetchTimeout:     getEnvDuration("FETCH_TIMEOUT", 15*time.Second),
+		MaxBodyBytes:     getEnvInt64("MAX_BODY_BYTES", 5*1024*1024),
+		ContextDevAPIKey: os.Getenv("CONTEXT_DEV_API_KEY"),
 	}
 }
 

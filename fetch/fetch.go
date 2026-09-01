@@ -10,7 +10,7 @@ import (
 
 	"github.com/otiai10/opengraph/v2"
 
-	"github.com/tinfoilsh/confidential-website-metadata-fetcher/zyte"
+	"github.com/tinfoilsh/confidential-website-metadata-fetcher/contextdev"
 )
 
 // Result is the extracted metadata returned to callers. Text fields are
@@ -24,14 +24,16 @@ type Result struct {
 	Image       *string `json:"image"`
 }
 
-// Fetcher extracts Open Graph metadata from resources retrieved through Zyte.
+// Fetcher extracts Open Graph metadata from resources retrieved through
+// context.dev.
 type Fetcher struct {
 	maxBodyBytes int64
-	upstream     zyte.Fetcher
+	upstream     contextdev.Fetcher
 }
 
-// NewFetcher returns a Fetcher that retrieves upstream resources through Zyte.
-func NewFetcher(upstream zyte.Fetcher, maxBodyBytes int64) *Fetcher {
+// NewFetcher returns a Fetcher that retrieves upstream resources through
+// context.dev.
+func NewFetcher(upstream contextdev.Fetcher, maxBodyBytes int64) *Fetcher {
 	return &Fetcher{maxBodyBytes: maxBodyBytes, upstream: upstream}
 }
 

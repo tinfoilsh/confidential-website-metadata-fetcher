@@ -2,19 +2,20 @@
 
 A small self-hosted service that extracts Open Graph metadata from a URL so a
 chat app can render link preview cards without hitting CORS or leaking a
-third-party API key. Metadata requests go through Zyte, while favicon-only
-requests go directly to DuckDuckGo without fetching the page. Built in Go around
+third-party API key. Metadata requests go through
+[context.dev](https://docs.context.dev), while favicon-only requests go
+directly to DuckDuckGo without fetching the page. Built in Go around
 [`github.com/otiai10/opengraph/v2`](https://github.com/otiai10/opengraph) and
 shipped as a Tinfoil enclave image.
 
 The metadata response exposes the resolved `og:title`, `og:description`,
 `og:site_name`, and `og:image`. Favicons are fetched separately as inlined bytes
-from DuckDuckGo so favicon-only UI never triggers a Zyte page request.
+from DuckDuckGo so favicon-only UI never triggers a context.dev page request.
 
 ## Quick Start
 
 ```bash
-ZYTE_API_KEY=your-key go run .
+CONTEXT_DEV_API_KEY=your-key go run .
 ```
 
 The service listens on `:8089` by default.
@@ -23,7 +24,7 @@ The service listens on `:8089` by default.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ZYTE_API_KEY` | required | Zyte API credential used for metadata requests |
+| `CONTEXT_DEV_API_KEY` | required | context.dev API credential used for metadata requests |
 | `LISTEN_ADDR` | `:8089` | Address to listen on |
 | `FETCH_TIMEOUT` | `15s` | Per-request timeout for upstream calls |
 | `MAX_BODY_BYTES` | `5242880` | Maximum decoded page size |
@@ -66,7 +67,7 @@ does not cache metadata; `cached` remains `false` for client compatibility.
 ### Fetch Favicon
 
 `POST /favicon` accepts the same request body as `/metadata`. It contacts
-DuckDuckGo directly and does not fetch the target page through Zyte.
+DuckDuckGo directly and does not fetch the target page through context.dev.
 
 ```json
 {
@@ -90,17 +91,23 @@ use `Cache-Control: no-store`.
 
 ## Security
 
-- Metadata requests connect only to `api.zyte.com`; the target URL is carried
-  inside the encrypted HTTPS request body. Zyte performs target DNS resolution
-  and page redirects.
+- Metadata requests connect only to `api.context.dev`; the target URL is
+  carried inside the encrypted HTTPS request. context.dev performs target DNS
+  resolution and page redirects.
 - Favicon requests connect directly to `icons.duckduckgo.com`. TLS hides the
   requested hostname in the URL path from the enclave host; DuckDuckGo sees it.
-- Tinfoil can observe traffic to Zyte but not the target hostname or URL. Zyte
-  necessarily receives the target URL and the destination sees Zyte's IP.
+- Tinfoil can observe traffic to context.dev but not the target hostname or
+  URL. context.dev necessarily receives the target URL and the destination
+  sees context.dev's IP.
 - The returned `og:image` URL is loaded by the client, so its image host can
   observe the client's IP and request.
 - Metadata and favicons are never cached inside the enclave, preventing callers
   from probing shared request history through response timing.
+- Every context.dev request is sent with `zdr=enabled` (zero data retention)
+  and `maxAgeMs=0`, so results never come from or land in context.dev's
+  shared cache and request/response content is kept out of its usage logs.
+  Zero data retention must be enabled for the organization by context.dev
+  support (support@context.dev), otherwise requests fail.
 - IP-literal targets and `*.local`, `*.internal`, and `*.localhost` hostnames
   are rejected without resolving the target hostname inside the enclave.
 - Only `http` and `https` URLs on the standard ports (80, 443) are accepted;
@@ -113,7 +120,7 @@ use `Cache-Control: no-store`.
 
 ```bash
 docker build -t metadata-fetch .
-docker run -p 8089:8089 -e ZYTE_API_KEY metadata-fetch
+docker run -p 8089:8089 -e CONTEXT_DEV_API_KEY metadata-fetch
 ```
 
 ## Reporting Vulnerabilities
