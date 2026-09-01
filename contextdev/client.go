@@ -145,6 +145,11 @@ func (l *limitedReadCloser) Read(p []byte) (int, error) {
 	}
 	n, err := l.inner.Read(p)
 	l.remaining -= int64(n)
+	if l.remaining <= 0 {
+		// The sentinel byte was consumed, so the response exceeds maxBytes
+		// even when this read also reported EOF.
+		return n, fmt.Errorf("context.dev response too large")
+	}
 	return n, err
 }
 

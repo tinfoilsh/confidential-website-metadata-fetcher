@@ -3,6 +3,7 @@ package contextdev
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -107,6 +108,34 @@ func TestFetchRejectsAPIResponseExceedingReadLimit(t *testing.T) {
 	client := NewClient("test-api-key", time.Second, option.WithBaseURL(server.URL), option.WithMaxRetries(0))
 	if _, err := client.Fetch(context.Background(), "https://example.com", maxBodyBytes); err == nil {
 		t.Fatal("expected read limit error for oversized API response")
+	}
+}
+
+func TestLimitedReadCloserRejectsBodyExceedingLimitAtEOF(t *testing.T) {
+	const maxBytes = 4
+	body := &limitedReadCloser{
+		inner:     io.NopCloser(strings.NewReader(strings.Repeat("x", maxBytes+1))),
+		remaining: maxBytes + 1,
+	}
+
+	if _, err := io.ReadAll(body); err == nil {
+		t.Fatal("expected size error for body exceeding the limit at EOF")
+	}
+}
+
+func TestLimitedReadCloserAcceptsBodyAtLimit(t *testing.T) {
+	const maxBytes = 4
+	body := &limitedReadCloser{
+		inner:     io.NopCloser(strings.NewReader(strings.Repeat("x", maxBytes))),
+		remaining: maxBytes + 1,
+	}
+
+	read, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read body at limit: %v", err)
+	}
+	if len(read) != maxBytes {
+		t.Fatalf("read %d bytes, want %d", len(read), maxBytes)
 	}
 }
 
