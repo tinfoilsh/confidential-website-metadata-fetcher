@@ -27,10 +27,15 @@ type Client struct {
 	timeout time.Duration
 }
 
+// Response carries the final URL and the page metadata that context.dev
+// extracts server-side, so callers never parse page HTML themselves.
 type Response struct {
 	URL         string
 	ContentType string
-	Body        []byte
+	Title       string
+	Description string
+	SiteName    string
+	Image       string
 }
 
 type Fetcher interface {
@@ -80,11 +85,6 @@ func (c *Client) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64
 		}
 		return nil, fmt.Errorf("context.dev request failed: %w", err)
 	}
-	body := []byte(scraped.HTML)
-	if int64(len(body)) > maxBodyBytes {
-		return nil, fmt.Errorf("upstream response body too large")
-	}
-
 	finalURL := scraped.Metadata.FinalURL
 	if finalURL == "" {
 		finalURL = scraped.URL
@@ -92,7 +92,10 @@ func (c *Client) Fetch(ctx context.Context, targetURL string, maxBodyBytes int64
 	return &Response{
 		URL:         finalURL,
 		ContentType: contentTypeFor(scraped.Type),
-		Body:        body,
+		Title:       scraped.Metadata.Title,
+		Description: scraped.Metadata.Description,
+		SiteName:    scraped.Metadata.SiteName,
+		Image:       scraped.Metadata.Image,
 	}, nil
 }
 

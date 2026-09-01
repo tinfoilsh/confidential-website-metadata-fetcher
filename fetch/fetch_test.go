@@ -28,11 +28,8 @@ func TestFetchRetrievesPageAndReturnsImageURL(t *testing.T) {
 		return &contextdev.Response{
 			URL:         finalURL,
 			ContentType: "text/html; charset=utf-8",
-			Body: []byte(`<html><head>
-					<meta property="og:title" content="Example Article">
-					<meta property="og:url" content="https://wrong.example/page">
-					<meta property="og:image" content="/images/cover.jpg">
-				</head></html>`),
+			Title:       "Example Article",
+			Image:       "/images/cover.jpg",
 		}, nil
 	})
 	fetcher := NewFetcher(upstream, 1024)

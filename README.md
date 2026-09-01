@@ -3,10 +3,9 @@
 A small self-hosted service that extracts Open Graph metadata from a URL so a
 chat app can render link preview cards without hitting CORS or leaking a
 third-party API key. Metadata requests go through
-[context.dev](https://docs.context.dev), while favicon-only requests go
-directly to DuckDuckGo without fetching the page. Built in Go around
-[`github.com/otiai10/opengraph/v2`](https://github.com/otiai10/opengraph) and
-shipped as a Tinfoil enclave image.
+[context.dev](https://docs.context.dev), which scrapes the page and extracts
+its metadata server-side; favicon-only requests go directly to DuckDuckGo
+without fetching the page. Built in Go and shipped as a Tinfoil enclave image.
 
 The metadata response exposes the resolved `og:title`, `og:description`,
 `og:site_name`, and `og:image`. Favicons are fetched separately as inlined bytes
@@ -27,7 +26,7 @@ The service listens on `:8089` by default.
 | `CONTEXT_DEV_API_KEY` | required | context.dev API credential used for metadata requests |
 | `LISTEN_ADDR` | `:8089` | Address to listen on |
 | `FETCH_TIMEOUT` | `15s` | Per-request timeout for upstream calls |
-| `MAX_BODY_BYTES` | `5242880` | Maximum decoded page size |
+| `MAX_BODY_BYTES` | `5242880` | Bounds the maximum context.dev API response size |
 
 ## API
 

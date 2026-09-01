@@ -42,8 +42,12 @@ func TestFetchReturnsDecodedUpstreamResponse(t *testing.T) {
 			"url":     targetURL,
 			"type":    "html",
 			"metadata": map[string]any{
-				"sourceUrl": targetURL,
-				"finalUrl":  "https://example.com/final",
+				"sourceUrl":   targetURL,
+				"finalUrl":    "https://example.com/final",
+				"title":       "Example Article",
+				"description": "A short summary.",
+				"siteName":    "Example",
+				"image":       "https://example.com/cover.jpg",
 			},
 			"cache_metadata": map[string]any{"status": "zdr", "age_ms": 0},
 		})
@@ -58,19 +62,28 @@ func TestFetchReturnsDecodedUpstreamResponse(t *testing.T) {
 	if response.URL != "https://example.com/final" {
 		t.Fatalf("response URL = %q", response.URL)
 	}
-	if string(response.Body) != pageHTML {
-		t.Fatalf("response body = %q", response.Body)
-	}
 	if response.ContentType != "text/html" {
 		t.Fatalf("content type = %q", response.ContentType)
 	}
+	if response.Title != "Example Article" {
+		t.Fatalf("title = %q", response.Title)
+	}
+	if response.Description != "A short summary." {
+		t.Fatalf("description = %q", response.Description)
+	}
+	if response.SiteName != "Example" {
+		t.Fatalf("site name = %q", response.SiteName)
+	}
+	if response.Image != "https://example.com/cover.jpg" {
+		t.Fatalf("image = %q", response.Image)
+	}
 }
 
-func TestFetchRejectsOversizedUpstreamBody(t *testing.T) {
+func TestFetchRejectsOversizedAPIResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(t, w, map[string]any{
 			"success": true,
-			"html":    "response body exceeding the limit",
+			"html":    strings.Repeat("x", maxAPIResponseOverhead+1024),
 			"url":     "https://example.com",
 			"type":    "html",
 			"metadata": map[string]any{
@@ -82,9 +95,9 @@ func TestFetchRejectsOversizedUpstreamBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-api-key", time.Second, option.WithBaseURL(server.URL))
+	client := NewClient("test-api-key", time.Second, option.WithBaseURL(server.URL), option.WithMaxRetries(0))
 	if _, err := client.Fetch(context.Background(), "https://example.com", 4); err == nil {
-		t.Fatal("expected oversized upstream body error")
+		t.Fatal("expected oversized API response error")
 	}
 }
 

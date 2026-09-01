@@ -14,6 +14,10 @@ Upstream page fetching goes through [context.dev](https://docs.context.dev)
   (`github.com/context-dot-dev/context-go-sdk`).
 - **Endpoint used:** `GET /web/scrape/html` (1 credit per call). Docs:
   https://docs.context.dev/api-reference/web-scraping/html
+- **Metadata extraction:** the endpoint's `metadata` response field (title,
+  description, siteName, image) is the source of truth for Open Graph data —
+  the service does not parse page HTML itself. Do not reintroduce client-side
+  HTML/OG parsing.
 - **Privacy invariants (do not weaken):** every request sets `maxAgeMs=0`
   (fresh scrape, never served from shared cache) and `zdr=enabled` (zero data
   retention: bypasses shared caches, keeps content out of retained usage
