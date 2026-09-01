@@ -64,7 +64,7 @@ func TestMetadataEndpointDoesNotCacheResponse(t *testing.T) {
 		return &contextdev.Response{
 			URL:         targetURL,
 			ContentType: "text/html",
-			Body:        []byte(`<meta property="og:title" content="Example">`),
+			Title:       "Example",
 		}, nil
 	})
 	server := NewServer(fetch.NewFetcher(upstream, 1024), nil)

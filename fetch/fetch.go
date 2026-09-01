@@ -1,14 +1,11 @@
 package fetch
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"mime"
 	"net/url"
 	"strings"
-
-	"github.com/otiai10/opengraph/v2"
 
 	"github.com/tinfoilsh/confidential-website-metadata-fetcher/contextdev"
 )
@@ -24,8 +21,7 @@ type Result struct {
 	Image       *string `json:"image"`
 }
 
-// Fetcher extracts Open Graph metadata from resources retrieved through
-// context.dev.
+// Fetcher returns page metadata extracted server-side by context.dev.
 type Fetcher struct {
 	maxBodyBytes int64
 	upstream     contextdev.Fetcher
@@ -61,23 +57,19 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse final URL: %w", err)
 	}
-	ogp := opengraph.New(pageURL)
-	if err := ogp.Parse(bytes.NewReader(page.Body)); err != nil {
-		return nil, fmt.Errorf("parse metadata: %w", err)
-	}
 
 	result := &Result{URL: pageURL}
-	if title := strings.TrimSpace(ogp.Title); title != "" {
+	if title := strings.TrimSpace(page.Title); title != "" {
 		result.Title = &title
 	}
-	if desc := strings.TrimSpace(ogp.Description); desc != "" {
+	if desc := strings.TrimSpace(page.Description); desc != "" {
 		result.Description = &desc
 	}
-	if site := strings.TrimSpace(ogp.SiteName); site != "" {
+	if site := strings.TrimSpace(page.SiteName); site != "" {
 		result.SiteName = &site
 	}
-	if len(ogp.Image) > 0 && strings.TrimSpace(ogp.Image[0].URL) != "" {
-		imageRef, err := url.Parse(strings.TrimSpace(ogp.Image[0].URL))
+	if imageValue := strings.TrimSpace(page.Image); imageValue != "" {
+		imageRef, err := url.Parse(imageValue)
 		if err == nil {
 			image, err := NormalizeTargetURL(baseURL.ResolveReference(imageRef).String())
 			if err == nil {
