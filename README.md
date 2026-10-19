@@ -12,7 +12,7 @@ Both `POST` endpoints take `{"url": "..."}` and return `400` for an invalid body
 
 ## Security
 
-- Only http/https URLs on standard ports are accepted; IP literals, local hostnames, and embedded credentials are rejected.
+- Only http/https URLs on ports 80 and 443 are accepted; IP literals, embedded credentials, `localhost`, and hosts ending in `.localhost`, `.local`, or `.internal` are rejected.
 - context.dev receives the target URL for metadata (with zero data retention and no shared cache), DuckDuckGo receives only the hostname for favicons, and clients load the `image` URL directly. Tinfoil sees traffic to those services but not the target URL.
 - Responses are sent with `Cache-Control: no-store`, and nothing is cached in the enclave.
 - The service expects a trusted ingress (such as the Tinfoil shim) to authenticate callers; do not expose it directly.
