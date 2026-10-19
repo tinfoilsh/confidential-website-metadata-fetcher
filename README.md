@@ -4,10 +4,10 @@ A small service that returns Open Graph metadata and favicons for a URL so [Tinf
 
 ## API
 
-Both `POST` endpoints take `{"url": "..."}` and return `400` for an invalid body or URL.
+Both `POST` endpoints take `{"url": "..."}` and return `400` if the object cannot be decoded or the URL is rejected.
 
 - `POST /metadata` returns `title`, `description`, `site_name`, `image`, and the final `url` after redirects. Missing tags are `null`. Upstream failures return `502`.
-- `POST /favicon` returns `status: "found"` with base64 `favicon_bytes` and `favicon_content_type`, or `status: "missing"`. A temporary upstream failure returns `503` with `retryable: true` and may set `Retry-After`.
+- `POST /favicon` returns `status: "found"` with base64 `favicon_bytes` and `favicon_content_type`, or `status: "missing"`. A temporary upstream failure returns `503` with `retryable: true` and may set `Retry-After`; an unusable upstream response returns `502` with `retryable: false`.
 - `GET /health` returns `{"status":"ok"}`.
 
 ## Security
