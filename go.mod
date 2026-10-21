@@ -1,6 +1,6 @@
 module github.com/tinfoilsh/confidential-website-metadata-fetcher
 
-go 1.25.5
+go 1.27.3
 
 require github.com/context-dot-dev/context-go-sdk v1.5.0
 
